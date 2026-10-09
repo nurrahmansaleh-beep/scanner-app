@@ -77,6 +77,7 @@ module.exports = async function handler(req, res) {
           const cleanedMasterId = cleanText(rawShipmentId);
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
             let rowObj = {};
+            // Menyusun data sesuai urutan kolom asli
             headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
             matches.push(rowObj);
             break; 
@@ -89,11 +90,17 @@ module.exports = async function handler(req, res) {
 
     if (action === 'save') {
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      const values = [
-        [timestamp, selectedData.shipment_external_id, JSON.stringify(selectedData)]
-      ];
+      
+      // 1. Mengubah object JSON kembali menjadi urutan kolom seperti Master Data
+      const rowValues = Object.values(selectedData);
+      
+      // 2. Menambahkan Timestamp di kolom paling kanan
+      rowValues.push(timestamp);
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:C:append?valueInputOption=USER_ENTERED`;
+      const values = [rowValues];
+
+      // 3. Menyimpan ke sheet Paxel dengan rentang dinamis (A:Z)
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,
         method: 'POST',

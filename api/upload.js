@@ -1,52 +1,76 @@
 import { google } from 'googleapis';
-import { Readable } from 'stream';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method Not Allowed' });
 
   try {
-    const { filename, base64 } = req.body;
+    const { action, ocrText, selectedData } = req.body;
 
-    // Menghubungkan kredensial dari Vercel
     const auth = new google.auth.GoogleAuth({
       credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file'
-      ],
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
-
-    const drive = google.drive({ version: 'v3', auth });
+    
     const sheets = google.sheets({ version: 'v4', auth });
-
-    const mimeType = base64.substring(5, base64.indexOf(';'));
-    const buffer = Buffer.from(base64.split(',')[1], 'base64');
-
-    // 1. Upload Gambar ke Google Drive "robot"
-    const driveRes = await drive.files.create({
-      requestBody: { name: `${filename}_${Date.now()}.jpg` },
-      media: { mimeType, body: Readable.from(buffer) },
-      fields: 'id, webViewLink',
-    });
-
-    // 2. Ubah Izin Akses Foto agar bisa dilihat siapa saja dari link
-    await drive.permissions.create({
-      fileId: driveRes.data.id,
-      requestBody: { role: 'reader', type: 'anyone' },
-    });
-
-    // 3. Catat ke Google Sheet Anda
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: 'Sheet1!A:C', // Pastikan nama sheet Anda adalah "Sheet1"
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [[new Date().toLocaleString('id-ID'), filename, driveRes.data.webViewLink]]
-      }
-    });
 
-    return res.status(200).json({ success: true, message: 'Dokumen berhasil tersimpan!' });
+    // ==========================================
+    // AKSI 1: MENCARI TEKS DARI HASIL OCR LIVE
+    // ==========================================
+    if (action === 'liveTextScan') {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Master Data', 
+      });
+      
+      const rows = response.data.values;
+      if (!rows || rows.length === 0) return res.status(200).json({ success: false });
+
+      const headers = rows[0];
+      const idIndex = headers.findIndex(h => h === 'shipment_external_id');
+      
+      if (idIndex === -1) {
+        return res.status(500).json({ success: false, message: 'Kolom shipment_external_id tidak ditemukan' });
+      }
+
+      const matches = [];
+      const textToSearch = ocrText.replace(/\s+/g, '').toUpperCase(); // Hapus semua spasi di hasil scan, ubah huruf besar
+
+      for (let i = 1; i < rows.length; i++) {
+        const rowData = rows[i];
+        const shipmentId = rowData[idIndex];
+        
+        // Hapus spasi pada ID master data untuk pencocokan yang lebih akurat
+        if (shipmentId && textToSearch.includes(shipmentId.replace(/\s+/g, '').toUpperCase())) {
+            let rowObj = {};
+            headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
+            matches.push(rowObj);
+            break; // Berhenti jika 1 id sudah ditemukan (agar lebih cepat)
+        }
+      }
+      
+      return res.status(200).json({ success: true, matches });
+    }
+
+    // ==========================================
+    // AKSI 2: SIMPAN KE SHEET PAXEL
+    // ==========================================
+    if (action === 'save') {
+       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+       const values = [
+         [timestamp, selectedData.shipment_external_id, JSON.stringify(selectedData)]
+       ];
+       
+       await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Paxel',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values }
+       });
+       
+       return res.status(200).json({ success: true });
+    }
+
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

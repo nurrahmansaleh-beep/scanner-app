@@ -1,7 +1,8 @@
 {
   "name": "scanner-app",
   "version": "1.0.0",
+  "main": "api/process.js",
   "dependencies": {
-    "googleapis": "^140.0.0"
+    "google-auth-library": "^9.0.0"
   }
 }

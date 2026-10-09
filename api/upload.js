@@ -1,4 +1,4 @@
-const { google } = require('googleapis');
+const { JWT } = require('google-auth-library');
 
 function cleanText(str) {
   if (!str) return '';
@@ -9,6 +9,8 @@ function cleanText(str) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }
@@ -23,41 +25,39 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    let credentials;
+    let creds;
     try {
-      const rawCreds = process.env.GOOGLE_SERVICE_ACCOUNT;
-      credentials = typeof rawCreds === 'string' ? JSON.parse(rawCreds) : rawCreds;
-      if (credentials.private_key) {
-        credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+      const raw = process.env.GOOGLE_SERVICE_ACCOUNT;
+      creds = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (creds.private_key) {
+        creds.private_key = creds.private_key.replace(/\\n/g, '\n');
       }
     } catch (e) {
       return res.status(500).json({ 
         success: false, 
-        message: 'Format JSON GOOGLE_SERVICE_ACCOUNT di Vercel salah: ' + e.message 
+        message: 'Format JSON GOOGLE_SERVICE_ACCOUNT di Vercel tidak valid: ' + e.message 
       });
     }
 
-    const auth = new google.auth.GoogleAuth({
-      credentials,
+    const client = new JWT({
+      email: creds.client_email,
+      key: creds.private_key,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
-    
-    const sheets = google.sheets({ version: 'v4', auth });
+
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
     if (action === 'liveTextScan') {
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'Master Data', 
-      });
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
+      const googleRes = await client.request({ url });
       
-      const rows = response.data.values;
+      const rows = googleRes.data.values;
       if (!rows || rows.length === 0) {
         return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
       }
 
       const headers = rows[0];
-      const idIndex = headers.findIndex(h => h.trim() === 'shipment_external_id');
+      const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       
       if (idIndex === -1) {
         return res.status(400).json({ 
@@ -76,10 +76,10 @@ module.exports = async function handler(req, res) {
         if (rawShipmentId) {
           const cleanedMasterId = cleanText(rawShipmentId);
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
-              let rowObj = {};
-              headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
-              matches.push(rowObj);
-              break; 
+            let rowObj = {};
+            headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
+            matches.push(rowObj);
+            break; 
           }
         }
       }
@@ -88,25 +88,25 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'save') {
-       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-       const values = [
-         [timestamp, selectedData.shipment_external_id, JSON.stringify(selectedData)]
-       ];
-       
-       await sheets.spreadsheets.values.append({
-          spreadsheetId,
-          range: 'Paxel',
-          valueInputOption: 'USER_ENTERED',
-          requestBody: { values }
-       });
-       
-       return res.status(200).json({ success: true });
+      const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+      const values = [
+        [timestamp, selectedData.shipment_external_id, JSON.stringify(selectedData)]
+      ];
+
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:C:append?valueInputOption=USER_ENTERED`;
+      await client.request({
+        url,
+        method: 'POST',
+        data: { values }
+      });
+
+      return res.status(200).json({ success: true });
     }
 
   } catch (error) {
     return res.status(500).json({ 
       success: false, 
-      message: 'Error Google API: ' + (error.message || error.toString()) 
+      message: 'Gagal Google API: ' + (error.message || error.toString()) 
     });
   }
 };

@@ -13,7 +13,6 @@
     .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
-    /* Kotak Target - Dibuat lebih tipis agar tabel/garis tidak ikut */
     .scan-box {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 75%; height: 40px; border: 3px solid #ff9800; border-radius: 6px;
@@ -106,18 +105,16 @@
       document.getElementById('resultsContainer').innerHTML = '';
       ocrDebugEl.style.display = 'none';
 
-      // 1. Rumus Potong Dipersempit (Hanya 10% tinggi kamera untuk 1 baris teks)
       const vW = video.videoWidth;
       const vH = video.videoHeight;
       const cropW = vW * 0.75; 
-      const cropH = vH * 0.10; // Sangat tipis!
+      const cropH = vH * 0.10;
       const cropX = (vW - cropW) / 2;
       const cropY = (vH - cropH) / 2;
 
       canvas.width = cropW;
       canvas.height = cropH;
 
-      // 2. Filter Hitam Putih agar teks menonjol
       ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       
@@ -126,16 +123,14 @@
       ocrDebugEl.style.display = 'block';
 
       try {
-        // 3. Baca dengan Mesin OCR
         const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
         let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
 
-        // 4. SARINGAN PINTAR (Hanya mengambil gabungan Huruf, Angka, dan Strip minimal 5 karakter)
         let cleanIdText = "";
         const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
         
         if (idPattern && idPattern.length > 0) {
-          cleanIdText = idPattern[0]; // Ambil tangkapan ID yang pertama
+          cleanIdText = idPattern[0];
         }
 
         debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
@@ -148,72 +143,13 @@
 
         statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
 
-        // 5. Kirim ke Server
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
         });
         
-        if (!response.ok) throw new Error("Gagal menghubungi Google Sheet (Server Error).");
-        
         const resData = await response.json();
         
-        if (!resData.success) throw new Error(resData.message || "Gagal dari sistem Sheet.");
-
-        if (resData.matches && resData.matches.length > 0) {
-          playBeepSound();
-          statusEl.innerText = "⚡ Data Ditemukan!";
-          renderResult(resData.matches[0]);
-        } else {
-          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ditemukan di Master Data.";
-        }
-      } catch (e) {
-        // Error akan tampil jelas di sini jika gagal
-        statusEl.innerText = "❌ Error: " + e.message;
-      } finally {
-        btnSnap.disabled = false;
-      }
-    }
-
-    function renderResult(data) {
-      const container = document.getElementById('resultsContainer');
-      container.innerHTML = `
-        <div class="result-card">
-          <h4>✅ Match ID: ${data.shipment_external_id}</h4>
-          <button class="btn-select" id="btnSave" onclick='saveToPaxel(${JSON.stringify(data)})'>Simpan ke Sheet Paxel</button>
-        </div>
-      `;
-    }
-
-    async function saveToPaxel(selectedData) {
-      const btnSave = document.getElementById('btnSave');
-      btnSave.disabled = true;
-      statusEl.innerText = '💾 Menyimpan ke Paxel...';
-
-      try {
-        const response = await fetch('/api/process', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save', selectedData: selectedData })
-        });
-        
-        if (!response.ok) throw new Error("Server gagal merespon.");
-
-        const resData = await response.json();
-        if (resData.success) {
-          document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
-          statusEl.innerText = "Siap memindai kode berikutnya.";
-        } else {
-          throw new Error(resData.message || "Gagal menyimpan.");
-        }
-      } catch (e) {
-        statusEl.innerText = '❌ Error: ' + e.message;
-        btnSave.disabled = false;
-      }
-    }
-
-    window.onload = startCamera;
-  </script>
-</body>
-</html>
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Error tidak

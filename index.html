@@ -3,63 +3,180 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scanner Dokumen</title>
+  <title>Live Text Scanner</title>
+  <!-- Tesseract.js untuk OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; text-align: center; background: #f4f6f9; }
-    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
-    button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
-    button:disabled { background: #ccc; }
-    #status { margin-top: 10px; font-weight: bold; color: #333; }
+    body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
+    .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+    h3 { margin-top: 0; color: #1a73e8; }
+    
+    /* Viewfinder Kamera Live */
+    #videoElement { width: 100%; border-radius: 12px; background: #000; margin-bottom: 10px; object-fit: cover; max-height: 300px;}
+    
+    /* Indikator Loading dan Status */
+    #status { font-weight: bold; margin: 10px 0; color: #d9534f; }
+    .scanning-active { color: #5cb85c !important; }
+    
+    /* Kartu Hasil */
+    .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
+    .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
+    .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; }
+    .btn-select:active { background: #1e7e34; }
+    .btn-restart { background: #ff9800; color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top:10px;}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>Scan Dokumen</h2>
-    <input type="text" id="docName" placeholder="Nama Dokumen / Keterangan">
-    <!-- capture="environment" otomatis buka kamera belakang HP -->
-    <input type="file" id="docImage" accept="image/*" capture="environment">
-    <button onclick="sendData()" id="btnSubmit">Kirim ke Spreadsheet</button>
-    <p id="status"></p>
+
+  <div class="container">
+    <h3>Scanner Teks Otomatis</h3>
+    <p style="font-size: 13px; color: #666;">Arahkan kamera agar teks (seperti ELZDZ2-8171) berada di tengah layar.</p>
+
+    <!-- Kamera Live -->
+    <video id="videoElement" autoplay playsinline></video>
+    <!-- Canvas tersembunyi untuk mengambil gambar dari video -->
+    <canvas id="canvasElement" style="display:none;"></canvas>
+
+    <div id="status">Mempersiapkan kamera...</div>
+    <div id="resultsContainer"></div>
+    <button id="btnRestart" class="btn-restart" style="display:none;" onclick="resumeScanning()">Mulai Ulang Scanner</button>
   </div>
 
   <script>
-    async function sendData() {
-      const docName = document.getElementById('docName').value;
-      const fileInput = document.getElementById('docImage');
-      const status = document.getElementById('status');
-      const btn = document.getElementById('btnSubmit');
+    const video = document.getElementById('videoElement');
+    const canvas = document.getElementById('canvasElement');
+    const statusEl = document.getElementById('status');
+    const ctx = canvas.getContext('2d');
+    
+    let isProcessing = false;
+    let scanInterval;
 
-      if (!docName || !fileInput.files[0]) {
-        status.innerText = 'Harap isi nama dan ambil foto!';
-        return;
+    // Fungsi Suara Beep
+    function playBeepSound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime); 
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15); 
+      } catch (e) {}
+    }
+
+    // Mulai Kamera
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment" } // Kamera belakang
+        });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          startAutoScan();
+        };
+      } catch (err) {
+        statusEl.innerText = "❌ Izin kamera ditolak atau kamera tidak ditemukan.";
       }
+    }
 
-      status.innerText = 'Mengunggah ke Spreadsheet... Mohon tunggu.';
-      btn.disabled = true;
+    // Fungsi Membaca Teks Secara Berkala (Tiap 3.5 Detik)
+    function startAutoScan() {
+      statusEl.innerText = "🟢 Sedang memindai teks...";
+      statusEl.className = "scanning-active";
+      isProcessing = false;
+      document.getElementById('btnRestart').style.display = 'none';
+      
+      scanInterval = setInterval(async () => {
+        if (isProcessing) return; // Tunggu proses sebelumnya selesai
+        isProcessing = true;
+        
+        // Ambil frame gambar dari video
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageDataURL = canvas.toDataURL('image/jpeg', 0.6); // Kualitas diturunkan agar lebih ringan diproses
 
-      const reader = new FileReader();
-      reader.readAsDataURL(fileInput.files[0]);
-      reader.onload = async () => {
+        statusEl.innerText = "⚙️ Menganalisa teks...";
+
         try {
-          const response = await fetch('/api/upload', {
+          // Lakukan OCR pada frame tersebut
+          const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
+          
+          // Jika tidak ada teks terbaca, lanjutkan loop
+          if (!text || text.trim().length < 5) {
+            statusEl.innerText = "🟢 Mencari teks...";
+            isProcessing = false;
+            return;
+          }
+
+          // Kirim teks ke server untuk dicocokkan dengan Master Data
+          const response = await fetch('/api/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: docName, base64: reader.result })
+            body: JSON.stringify({ action: 'liveTextScan', ocrText: text })
           });
+          
           const resData = await response.json();
-          status.innerText = resData.message;
-          if(resData.success) {
-            document.getElementById('docName').value = '';
-            fileInput.value = '';
+
+          if (resData.success && resData.matches && resData.matches.length > 0) {
+            // DATA DITEMUKAN!
+            clearInterval(scanInterval); // Hentikan scan otomatis
+            playBeepSound();
+            statusEl.innerText = "⚡ Data Ditemukan!";
+            statusEl.className = "";
+            renderResult(resData.matches[0]); // Ambil kecocokan pertama
+          } else {
+             // Tidak cocok, lanjutkan scanning
+             statusEl.innerText = "🟢 Memindai...";
+             isProcessing = false;
           }
         } catch (e) {
-          status.innerText = 'Gagal mengunggah data. Cek koneksi Anda.';
-        } finally {
-          btn.disabled = false;
+          statusEl.innerText = "🟢 Memindai (mencoba ulang)...";
+          isProcessing = false;
         }
-      };
+      }, 3500); // Waktu jeda adalah 3,5 detik antar scan (menghindari HP hang)
     }
+
+    function renderResult(data) {
+      document.getElementById('btnRestart').style.display = 'inline-block';
+      const container = document.getElementById('resultsContainer');
+      container.innerHTML = `
+        <div class="result-card">
+          <h4>✅ Match ID: ${data.shipment_external_id}</h4>
+          <button class="btn-select" onclick='saveToPaxel(${JSON.stringify(data)})'>Simpan ke Sheet Paxel</button>
+        </div>
+      `;
+    }
+
+    function resumeScanning() {
+       document.getElementById('resultsContainer').innerHTML = '';
+       startAutoScan();
+    }
+
+    async function saveToPaxel(selectedData) {
+      statusEl.innerText = '💾 Menyimpan ke Paxel...';
+      try {
+        const response = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save', selectedData: selectedData })
+        });
+
+        const resData = await response.json();
+        if (resData.success) {
+          document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold;">🎉 Berhasil Disimpan!</p>';
+          setTimeout(() => { resumeScanning(); }, 2000); // Otomatis mulai scan lagi
+        }
+      } catch (e) {
+        statusEl.innerText = '❌ Gagal menyimpan.';
+      }
+    }
+
+    // Jalankan kamera saat pertama buka
+    window.onload = startCamera;
   </script>
 </body>
 </html>

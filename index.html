@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Scanner DO Balik</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
@@ -37,7 +40,7 @@
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye, lalu tekan potret.</p>
+    <p style="font-size: 13px; color: #666;">Tekan tombol biru untuk membuka kamera.</p>
 
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline muted></video>
@@ -49,7 +52,7 @@
 
     <canvas id="canvasElement" style="display:none;"></canvas>
 
-    <div id="status">Tekan tombol di atas untuk mengaktifkan kamera.</div>
+    <div id="status">Klik tombol biru di atas untuk menyalakan kamera.</div>
     
     <div id="ocrDebug">
       <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:16px;">-</span><br>
@@ -89,8 +92,8 @@
 
     async function startCamera() {
       statusEl.innerText = "⌛ Meminta akses kamera...";
-      
-      // Hentikan stream lama jika ada
+      btnStart.disabled = true;
+
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
@@ -103,11 +106,12 @@
         video.srcObject = currentStream;
         await video.play();
         
-        statusEl.innerText = "🟢 Kamera aktif. Posisikan ID lalu tekan POTRET.";
+        statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak, lalu tekan POTRET.";
         btnStart.style.display = 'none';
         btnSnap.style.display = 'block';
       } catch (err) {
-        statusEl.innerText = "❌ Gagal mengaktifkan kamera: " + err.message + ". Tutup tab Chrome lain yang memakai kamera!";
+        btnStart.disabled = false;
+        statusEl.innerText = "❌ Kamera gagal: " + err.message + ". Pastikan izin kamera aktif di Chrome!";
       }
     }
 

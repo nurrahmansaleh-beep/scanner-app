@@ -4,37 +4,42 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Live Text Scanner</title>
-  <!-- Tesseract.js untuk OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
     .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
     h3 { margin-top: 0; color: #1a73e8; }
     
-    /* Viewfinder Kamera Live */
-    #videoElement { width: 100%; border-radius: 12px; background: #000; margin-bottom: 10px; object-fit: cover; max-height: 300px;}
+    /* Viewfinder Kamera dengan Overlay Kotak Fokus */
+    .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; }
+    #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
-    /* Indikator Loading dan Status */
-    #status { font-weight: bold; margin: 10px 0; color: #d9534f; }
-    .scanning-active { color: #5cb85c !important; }
+    /* Kotak Target Merah/Hijau di Tengah */
+    .scan-box {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 80%; height: 70px; border: 3px solid #ff9800; border-radius: 8px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.4); pointer-events: none;
+    }
     
-    /* Kartu Hasil */
+    #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
+    
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
     .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
     .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; }
-    .btn-select:active { background: #1e7e34; }
-    .btn-restart { background: #ff9800; color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top:10px;}
+    .btn-restart { background: #ff9800; color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
   </style>
 </head>
 <body>
 
   <div class="container">
     <h3>Scanner Teks Otomatis</h3>
-    <p style="font-size: 13px; color: #666;">Arahkan kamera agar teks (seperti ELZDZ2-8171) berada di tengah layar.</p>
+    <p style="font-size: 13px; color: #666;">Posisikan kode ID (seperti E2M96L-3880) pas di dalam <b>KOTAK ORANYE</b>.</p>
 
-    <!-- Kamera Live -->
-    <video id="videoElement" autoplay playsinline></video>
-    <!-- Canvas tersembunyi untuk mengambil gambar dari video -->
+    <div class="camera-wrapper">
+      <video id="videoElement" autoplay playsinline></video>
+      <div class="scan-box" id="scanBox"></div>
+    </div>
+    
     <canvas id="canvasElement" style="display:none;"></canvas>
 
     <div id="status">Mempersiapkan kamera...</div>
@@ -46,12 +51,12 @@
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
+    const scanBox = document.getElementById('scanBox');
     const ctx = canvas.getContext('2d');
     
     let isProcessing = false;
     let scanInterval;
 
-    // Fungsi Suara Beep
     function playBeepSound() {
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -67,52 +72,56 @@
       } catch (e) {}
     }
 
-    // Mulai Kamera
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment" } // Kamera belakang
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          startAutoScan();
-        };
+        video.onloadedmetadata = () => { startAutoScan(); };
       } catch (err) {
-        statusEl.innerText = "❌ Izin kamera ditolak atau kamera tidak ditemukan.";
+        statusEl.innerText = "❌ Gagal membuka kamera.";
       }
     }
 
-    // Fungsi Membaca Teks Secara Berkala (Tiap 3.5 Detik)
     function startAutoScan() {
-      statusEl.innerText = "🟢 Sedang memindai teks...";
-      statusEl.className = "scanning-active";
+      statusEl.innerText = "🟢 Posisikan teks di dalam kotak...";
+      scanBox.style.borderColor = "#ff9800";
       isProcessing = false;
       document.getElementById('btnRestart').style.display = 'none';
       
       scanInterval = setInterval(async () => {
-        if (isProcessing) return; // Tunggu proses sebelumnya selesai
+        if (isProcessing) return;
         isProcessing = true;
         
-        // Ambil frame gambar dari video
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageDataURL = canvas.toDataURL('image/jpeg', 0.6); // Kualitas diturunkan agar lebih ringan diproses
+        // POTONG HANYA AREA KOTAK TENGAH (CROP)
+        const vW = video.videoWidth;
+        const vH = video.videoHeight;
+        
+        // Area crop 70% lebar dan 25% tinggi di tengah kamera
+        const cropW = vW * 0.75;
+        const cropH = vH * 0.25;
+        const cropX = (vW - cropW) / 2;
+        const cropY = (vH - cropH) / 2;
 
-        statusEl.innerText = "⚙️ Menganalisa teks...";
+        canvas.width = cropW;
+        canvas.height = cropH;
+
+        // Gambar hanya bagian kotak fokus
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        const imageDataURL = canvas.toDataURL('image/jpeg', 0.8);
+
+        statusEl.innerText = "⚙️ Menganalisa area kotak...";
 
         try {
-          // Lakukan OCR pada frame tersebut
           const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
           
-          // Jika tidak ada teks terbaca, lanjutkan loop
-          if (!text || text.trim().length < 5) {
-            statusEl.innerText = "🟢 Mencari teks...";
+          if (!text || text.trim().length < 3) {
+            statusEl.innerText = "🟢 Posisikan teks di dalam kotak...";
             isProcessing = false;
             return;
           }
 
-          // Kirim teks ke server untuk dicocokkan dengan Master Data
           const response = await fetch('/api/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -122,22 +131,20 @@
           const resData = await response.json();
 
           if (resData.success && resData.matches && resData.matches.length > 0) {
-            // DATA DITEMUKAN!
-            clearInterval(scanInterval); // Hentikan scan otomatis
+            clearInterval(scanInterval);
             playBeepSound();
+            scanBox.style.borderColor = "#28a745"; // Ubah kotak jadi hijau jika berhasil
             statusEl.innerText = "⚡ Data Ditemukan!";
-            statusEl.className = "";
-            renderResult(resData.matches[0]); // Ambil kecocokan pertama
+            renderResult(resData.matches[0]);
           } else {
-             // Tidak cocok, lanjutkan scanning
              statusEl.innerText = "🟢 Memindai...";
              isProcessing = false;
           }
         } catch (e) {
-          statusEl.innerText = "🟢 Memindai (mencoba ulang)...";
+          statusEl.innerText = "🟢 Memindai...";
           isProcessing = false;
         }
-      }, 3500); // Waktu jeda adalah 3,5 detik antar scan (menghindari HP hang)
+      }, 2500); 
     }
 
     function renderResult(data) {
@@ -168,14 +175,13 @@
         const resData = await response.json();
         if (resData.success) {
           document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold;">🎉 Berhasil Disimpan!</p>';
-          setTimeout(() => { resumeScanning(); }, 2000); // Otomatis mulai scan lagi
+          setTimeout(() => { resumeScanning(); }, 2000);
         }
       } catch (e) {
         statusEl.innerText = '❌ Gagal menyimpan.';
       }
     }
 
-    // Jalankan kamera saat pertama buka
     window.onload = startCamera;
   </script>
 </body>

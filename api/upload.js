@@ -1,26 +1,37 @@
 import { google } from 'googleapis';
 
-// Normalisasi karakter yang sering tertukar pada sistem OCR
 function cleanText(str) {
   if (!str) return '';
   return str.toString()
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '') // Hapus strip (-), spasi, dsb
-    .replace(/O/g, '0')        // Huruf O disamakan dengan Angka 0
-    .replace(/G/g, '6')        // Huruf G disamakan dengan Angka 6
-    .replace(/Z/g, '2')        // Huruf Z disamakan dengan Angka 2
-    .replace(/B/g, '8')        // Huruf B disamakan dengan Angka 8
-    .replace(/[IL]/g, '1');     // Huruf I / L disamakan dengan Angka 1
+    .replace(/[^A-Z0-9]/g, '') 
+    .replace(/O/g, '0');
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ message: 'Method Not Allowed' });
+  if (req.method !== 'POST') return res.status(405).json({ success: false, message: 'Method Not Allowed' });
 
   try {
     const { action, ocrText, selectedData } = req.body;
 
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+      return res.status(500).json({ success: false, message: 'Env Variable GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel!' });
+    }
+
+    // Tangani format private_key agar tidak rusak saat dibaca Vercel
+    let credentials;
+    try {
+      const rawCreds = process.env.GOOGLE_SERVICE_ACCOUNT;
+      credentials = typeof rawCreds === 'string' ? JSON.parse(rawCreds) : rawCreds;
+      if (credentials.private_key) {
+        credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+      }
+    } catch (e) {
+      return res.status(500).json({ success: false, message: 'Format teks JSON Kredensial di Vercel salah: ' + e.message });
+    }
+
     const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+      credentials,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     
@@ -34,13 +45,13 @@ export default async function handler(req, res) {
       });
       
       const rows = response.data.values;
-      if (!rows || rows.length === 0) return res.status(200).json({ success: false });
+      if (!rows || rows.length === 0) return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
 
       const headers = rows[0];
-      const idIndex = headers.findIndex(h => h === 'shipment_external_id');
+      const idIndex = headers.findIndex(h => h.trim() === 'shipment_external_id');
       
       if (idIndex === -1) {
-        return res.status(500).json({ success: false, message: 'Kolom shipment_external_id tidak ditemukan' });
+        return res.status(400).json({ success: false, message: 'Header shipment_external_id tidak ditemukan di Master Data.' });
       }
 
       const matches = [];
@@ -52,8 +63,6 @@ export default async function handler(req, res) {
         
         if (rawShipmentId) {
           const cleanedMasterId = cleanText(rawShipmentId);
-          
-          // Cocokkan jika ID master berada di dalam teks hasil scan
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
               let rowObj = {};
               headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
@@ -83,6 +92,10 @@ export default async function handler(req, res) {
     }
 
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    // Menampilkan detail error spesifik ke layar HP
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Detail Error Google: ' + (error.message || error.toString()) 
+    });
   }
 }

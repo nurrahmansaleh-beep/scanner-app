@@ -19,11 +19,11 @@
       box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5); pointer-events: none;
     }
     
-    .btn-snap { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; cursor: pointer; }
-    .btn-snap:active { background: #1557b0; }
-    .btn-snap:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-main { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; cursor: pointer; margin-bottom: 10px; }
+    .btn-main:active { background: #1557b0; }
+    .btn-main:disabled { background: #ccc; cursor: not-allowed; }
     
-    #status { font-weight: bold; margin: 15px 0 5px 0; color: #333; font-size: 14px; }
+    #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
     
     #ocrDebug { font-size: 13px; color: #333; background: #fff; padding: 10px; border-radius: 8px; border: 2px dashed #ff9800; margin-top: 10px; display: none; }
     #debugCanvasImage { width: 100%; max-height: 60px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; }
@@ -37,18 +37,19 @@
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye. Pastikan <b>tulisan terbaca jelas</b> (tidak blur).</p>
+    <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye, lalu tekan potret.</p>
 
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline muted></video>
       <div class="scan-box" id="scanBox"></div>
     </div>
     
-    <button class="btn-snap" id="btnSnap" onclick="takeSnapAndScan()">📸 POTRET & SCAN</button>
+    <button class="btn-main" id="btnStart" onclick="startCamera()">📷 BUKA / AKTIFKAN KAMERA</button>
+    <button class="btn-main" id="btnSnap" onclick="takeSnapAndScan()" style="display:none; background:#28a745;">📸 POTRET & SCAN</button>
 
     <canvas id="canvasElement" style="display:none;"></canvas>
 
-    <div id="status">Membuka kamera...</div>
+    <div id="status">Tekan tombol di atas untuk mengaktifkan kamera.</div>
     
     <div id="ocrDebug">
       <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:16px;">-</span><br>
@@ -66,8 +67,10 @@
     const ocrDebugEl = document.getElementById('ocrDebug');
     const debugTextEl = document.getElementById('debugText');
     const debugCanvasImage = document.getElementById('debugCanvasImage');
+    const btnStart = document.getElementById('btnStart');
     const btnSnap = document.getElementById('btnSnap');
     const ctx = canvas.getContext('2d');
+    let currentStream = null;
 
     function playBeepSound() {
       try {
@@ -85,56 +88,27 @@
     }
 
     async function startCamera() {
-      statusEl.innerText = "🎥 Meminta izin kamera...";
+      statusEl.innerText = "⌛ Meminta akses kamera...";
       
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        statusEl.innerText = "❌ Browser tidak mendukung kamera.";
-        btnSnap.disabled = true;
-        return;
+      // Hentikan stream lama jika ada
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
       }
 
-      const constraintsList = [
-        { video: { facingMode: { exact: "environment" } } },
-        { video: { facingMode: "environment" } },
-        { video: true }
-      ];
-
-      let stream = null;
-      let lastError = null;
-
-      for (const constraints of constraintsList) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break;
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (!stream) {
-        statusEl.innerText = "❌ Gagal: " + (lastError ? lastError.message : "Akses ditolak");
-        btnSnap.disabled = true;
-        return;
-      }
-
-      video.srcObject = stream;
-      
-      const readyCallback = () => {
-        video.play().then(() => {
-          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
-        }).catch(() => {
-          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
-      };
-
-      video.onloadeddata = readyCallback;
-
-      // Timer pengaman apabila browser tidak memicu event onloadeddata
-      setTimeout(() => {
-        if (statusEl.innerText.includes("Meminta izin")) {
-          readyCallback();
-        }
-      }, 1500);
+        
+        video.srcObject = currentStream;
+        await video.play();
+        
+        statusEl.innerText = "🟢 Kamera aktif. Posisikan ID lalu tekan POTRET.";
+        btnStart.style.display = 'none';
+        btnSnap.style.display = 'block';
+      } catch (err) {
+        statusEl.innerText = "❌ Gagal mengaktifkan kamera: " + err.message + ". Tutup tab Chrome lain yang memakai kamera!";
+      }
     }
 
     async function takeSnapAndScan() {
@@ -161,3 +135,86 @@
       ocrDebugEl.style.display = 'block';
 
       try {
+        const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
+        let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
+
+        let cleanIdText = "";
+        const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
+        if (idPattern && idPattern.length > 0) {
+          cleanIdText = idPattern[0];
+        }
+
+        debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
+
+        if (!cleanIdText) {
+          statusEl.innerText = "❌ ID tidak terbaca. Pastikan foto tidak blur.";
+          btnSnap.disabled = false;
+          return;
+        }
+
+        statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
+
+        const response = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
+        });
+        
+        const resData = await response.json();
+        
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Error dari server Google.");
+        }
+
+        if (resData.matches && resData.matches.length > 0) {
+          playBeepSound();
+          statusEl.innerText = "⚡ Data Ditemukan!";
+          renderResult(resData.matches[0]);
+        } else {
+          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master Data.";
+        }
+      } catch (e) {
+        statusEl.innerText = "❌ Error: " + e.message;
+      } finally {
+        btnSnap.disabled = false;
+      }
+    }
+
+    function renderResult(data) {
+      const container = document.getElementById('resultsContainer');
+      container.innerHTML = `
+        <div class="result-card">
+          <h4>✅ Match ID: ${data.shipment_external_id}</h4>
+          <button class="btn-select" id="btnSave" onclick='saveToPaxel(${JSON.stringify(data)})'>Simpan ke Sheet Paxel</button>
+        </div>
+      `;
+    }
+
+    async function saveToPaxel(selectedData) {
+      const btnSave = document.getElementById('btnSave');
+      btnSave.disabled = true;
+      statusEl.innerText = '💾 Menyimpan ke Paxel...';
+
+      try {
+        const response = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save', selectedData: selectedData })
+        });
+        
+        const resData = await response.json();
+
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Gagal menyimpan ke Sheet Paxel.");
+        }
+
+        document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
+        statusEl.innerText = "Siap memindai kode berikutnya.";
+      } catch (e) {
+        statusEl.innerText = '❌ Error: ' + e.message;
+        btnSave.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

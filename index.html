@@ -10,11 +10,9 @@
     .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
     h3 { margin-top: 0; color: #1a73e8; }
     
-    /* Viewfinder Kamera dengan Overlay Kotak Fokus */
     .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
-    /* Kotak Target Merah/Hijau di Tengah */
     .scan-box {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 80%; height: 70px; border: 3px solid #ff9800; border-radius: 8px;
@@ -22,6 +20,7 @@
     }
     
     #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
+    #ocrDebug { font-size: 13px; color: #666; background: #f8f9fa; padding: 8px; border-radius: 6px; border: 1px dashed #ccc; margin-top: 5px; word-break: break-all; }
     
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
     .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
@@ -33,7 +32,7 @@
 
   <div class="container">
     <h3>Scanner Teks Otomatis</h3>
-    <p style="font-size: 13px; color: #666;">Posisikan kode ID (seperti E2M96L-3880) pas di dalam <b>KOTAK ORANYE</b>.</p>
+    <p style="font-size: 13px; color: #666;">Pas-kan kode ID persis di dalam <b>KOTAK ORANYE</b>.</p>
 
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline></video>
@@ -43,6 +42,8 @@
     <canvas id="canvasElement" style="display:none;"></canvas>
 
     <div id="status">Mempersiapkan kamera...</div>
+    <div id="ocrDebug">Teks Terbaca: -</div>
+    
     <div id="resultsContainer"></div>
     <button id="btnRestart" class="btn-restart" style="display:none;" onclick="resumeScanning()">Mulai Ulang Scanner</button>
   </div>
@@ -51,11 +52,13 @@
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
+    const ocrDebugEl = document.getElementById('ocrDebug');
     const scanBox = document.getElementById('scanBox');
     const ctx = canvas.getContext('2d');
     
     let isProcessing = false;
     let scanInterval;
+    let worker;
 
     function playBeepSound() {
       try {
@@ -74,18 +77,25 @@
 
     async function startCamera() {
       try {
+        // Inisialisasi Tesseract Worker dengan Whitelist
+        statusEl.innerText = "⚙️ Memuat sistem pembaca teks...";
+        worker = await Tesseract.createWorker('eng');
+        await worker.setParameters({
+          tesseract_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-',
+        });
+
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         video.srcObject = stream;
         video.onloadedmetadata = () => { startAutoScan(); };
       } catch (err) {
-        statusEl.innerText = "❌ Gagal membuka kamera.";
+        statusEl.innerText = "❌ Gagal mengaktifkan kamera/sistem.";
       }
     }
 
     function startAutoScan() {
-      statusEl.innerText = "🟢 Posisikan teks di dalam kotak...";
+      statusEl.innerText = "🟢 Arahkan kotak ke kode ID...";
       scanBox.style.borderColor = "#ff9800";
       isProcessing = false;
       document.getElementById('btnRestart').style.display = 'none';
@@ -94,29 +104,34 @@
         if (isProcessing) return;
         isProcessing = true;
         
-        // POTONG HANYA AREA KOTAK TENGAH (CROP)
-        const vW = video.videoWidth;
-        const vH = video.videoHeight;
-        
-        // Area crop 70% lebar dan 25% tinggi di tengah kamera
-        const cropW = vW * 0.75;
-        const cropH = vH * 0.25;
-        const cropX = (vW - cropW) / 2;
-        const cropY = (vH - cropH) / 2;
+        // HITUNG KOORDINAT AKURAT SESUAI UKURAN LAYAR HP
+        const videoRect = video.getBoundingClientRect();
+        const boxRect = scanBox.getBoundingClientRect();
+
+        const scaleX = video.videoWidth / videoRect.width;
+        const scaleY = video.videoHeight / videoRect.height;
+
+        const cropX = (boxRect.left - videoRect.left) * scaleX;
+        const cropY = (boxRect.top - videoRect.top) * scaleY;
+        const cropW = boxRect.width * scaleX;
+        const cropH = boxRect.height * scaleY;
 
         canvas.width = cropW;
         canvas.height = cropH;
 
-        // Gambar hanya bagian kotak fokus
+        // Potong tepat gambar di dalam kotak oranye
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-        const imageDataURL = canvas.toDataURL('image/jpeg', 0.8);
+        const imageDataURL = canvas.toDataURL('image/jpeg', 0.85);
 
-        statusEl.innerText = "⚙️ Menganalisa area kotak...";
+        statusEl.innerText = "⚙️ Membaca teks...";
 
         try {
-          const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
+          const { data: { text } } = await worker.recognize(imageDataURL);
+          const cleanReadText = text ? text.trim() : '';
           
-          if (!text || text.trim().length < 3) {
+          ocrDebugEl.innerText = "Teks Terbaca: " + (cleanReadText || "-");
+
+          if (!cleanReadText || cleanReadText.length < 3) {
             statusEl.innerText = "🟢 Posisikan teks di dalam kotak...";
             isProcessing = false;
             return;
@@ -125,7 +140,7 @@
           const response = await fetch('/api/process', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'liveTextScan', ocrText: text })
+            body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanReadText })
           });
           
           const resData = await response.json();
@@ -133,18 +148,18 @@
           if (resData.success && resData.matches && resData.matches.length > 0) {
             clearInterval(scanInterval);
             playBeepSound();
-            scanBox.style.borderColor = "#28a745"; // Ubah kotak jadi hijau jika berhasil
+            scanBox.style.borderColor = "#28a745";
             statusEl.innerText = "⚡ Data Ditemukan!";
             renderResult(resData.matches[0]);
           } else {
-             statusEl.innerText = "🟢 Memindai...";
+             statusEl.innerText = "🟢 Memindai ulang...";
              isProcessing = false;
           }
         } catch (e) {
-          statusEl.innerText = "🟢 Memindai...";
+          statusEl.innerText = "🟢 Memindai ulang...";
           isProcessing = false;
         }
-      }, 2500); 
+      }, 2000); 
     }
 
     function renderResult(data) {

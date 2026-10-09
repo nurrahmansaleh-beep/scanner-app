@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { action, ocrText, selectedData } = req.body;
+    const { action, ocrText, selectedData, tanggalSerahTerima } = req.body;
 
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
       return res.status(500).json({ 
@@ -77,7 +77,6 @@ module.exports = async function handler(req, res) {
           const cleanedMasterId = cleanText(rawShipmentId);
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
             let rowObj = {};
-            // Menyusun data sesuai urutan kolom asli
             headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
             matches.push(rowObj);
             break; 
@@ -91,15 +90,15 @@ module.exports = async function handler(req, res) {
     if (action === 'save') {
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       
-      // 1. Mengubah object JSON kembali menjadi urutan kolom seperti Master Data
+      // Ambil seluruh data sesuai struktur Master Data
       const rowValues = Object.values(selectedData);
       
-      // 2. Menambahkan Timestamp di kolom paling kanan
+      // Tambahkan Tanggal Serah Terima (Manual Input) & Timestamp Otomatis Sistem
+      rowValues.push(tanggalSerahTerima || '-');
       rowValues.push(timestamp);
 
       const values = [rowValues];
 
-      // 3. Menyimpan ke sheet Paxel dengan rentang dinamis (A:Z)
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,

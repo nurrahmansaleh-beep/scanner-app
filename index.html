@@ -9,9 +9,9 @@
   <style>
     body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
     .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
-    h3 { margin-top: 0; color: #1a73e8; }
+    h3 { margin-top: 0; color: #1a73e8; margin-bottom: 5px; }
     
-    .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
+    .camera-wrapper { position: relative; width: 100%; height: 240px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
     .scan-box {
@@ -27,17 +27,25 @@
     #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
     
     #ocrDebug { font-size: 13px; color: #333; background: #fff; padding: 10px; border-radius: 8px; border: 2px dashed #ff9800; margin-top: 10px; display: none; }
-    #debugCanvasImage { width: 100%; max-height: 60px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; }
+    #debugCanvasImage { width: 100%; max-height: 50px; object-fit: contain; margin-top: 6px; border: 1px solid #ddd; }
     
-    .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
-    .result-card h4 { margin: 0 0 12px 0; color: #1a73e8; font-size: 16px; }
-    .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 15px; }
+    /* Section Riwayat */
+    .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; }
     
-    /* Tabel Informasi Kolom A - F */
-    .info-table { background: white; padding: 12px; border-radius: 8px; font-size: 13px; border: 1px solid #cce5ff; margin-top: 5px; }
-    .info-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #e0e0e0; }
+    .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 14px; border-radius: 12px; text-align: left; margin-bottom: 15px; position: relative; }
+    .result-card h4 { margin: 0 0 10px 0; color: #1a73e8; font-size: 15px; }
+    
+    .date-input-group { margin-top: 10px; background: #fff; padding: 8px 12px; border-radius: 8px; border: 1px solid #cce5ff; display: flex; align-items: center; justify-content: space-between; }
+    .date-input-group label { font-size: 12px; font-weight: bold; color: #555; }
+    .date-input-group input { font-family: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+
+    .btn-select { background: #28a745; color: white; border: none; padding: 10px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; margin-top: 10px; }
+    .btn-select:disabled { background: #6c757d; cursor: not-allowed; }
+    
+    .info-table { background: white; padding: 10px; border-radius: 8px; font-size: 12px; border: 1px solid #cce5ff; }
+    .info-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e0e0e0; }
     .info-row:last-child { border-bottom: none; }
-    .info-label { color: #555; width: 45%; font-weight: 500; }
+    .info-label { color: #555; width: 45%; }
     .info-value { color: #111; width: 55%; font-weight: bold; text-align: right; word-break: break-word; }
   </style>
 </head>
@@ -45,7 +53,7 @@
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Aktifkan kamera, pas-kan ID di kotak oranye, lalu tekan potret.</p>
+    <p style="font-size: 12px; color: #666; margin-top:0;">Posisikan ID di kotak oranye, lalu tekan potret.</p>
 
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline muted></video>
@@ -60,12 +68,16 @@
     <div id="status">Tekan tombol biru untuk mengaktifkan kamera.</div>
     
     <div id="ocrDebug">
-      <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:16px;">-</span><br>
-      <small style="color:#666;">Potongan gambar yang dianalisa mesin:</small>
+      <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:15px;">-</span><br>
+      <small style="color:#666;">Potongan gambar:</small><br>
       <img id="debugCanvasImage" alt="Potongan OCR">
     </div>
     
-    <div id="resultsContainer"></div>
+    <!-- Wadah Riwayat Hasil Scan -->
+    <div id="historySection" style="display:none;">
+      <div class="history-title">📋 Riwayat Scan (Sesi Ini)</div>
+      <div id="resultsContainer"></div>
+    </div>
   </div>
 
   <script>
@@ -80,7 +92,7 @@
     const ctx = canvas.getContext('2d');
     
     let currentStream = null;
-    let currentMatchedData = null;
+    let scannedHistory = []; // Menyimpan semua riwayat hasil scan sesi ini
 
     function playBeepSound() {
       try {
@@ -97,7 +109,6 @@
       } catch (e) {}
     }
 
-    // Fungsi Pengaktif Kamera Multi-Skenario Ringan & Tanpa Crash
     async function startCamera() {
       statusEl.innerText = "⌛ Meminta akses kamera...";
       btnStart.disabled = true;
@@ -106,54 +117,39 @@
         currentStream.getTracks().forEach(track => track.stop());
       }
 
-      // Daftar konfigurasi dari yang spesifik ke yang paling sederhana
       const tryConstraints = [
-        { video: { facingMode: "environment" } }, // Kamera belakang standar
-        { video: { facingMode: "user" } },        // Fallback: kamera depan (jika belakang error)
-        { video: true }                            // Fallback: kamera apa saja yang aktif
+        { video: { facingMode: "environment" } },
+        { video: { facingMode: "user" } },
+        { video: true }
       ];
 
       let stream = null;
-      let lastErr = null;
 
       for (let constraints of tryConstraints) {
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break; // Berhasil, keluar dari percobaan
-        } catch (err) {
-          lastErr = err;
-        }
+          if (stream) break;
+        } catch (err) {}
       }
 
       if (!stream) {
         btnStart.disabled = false;
-        statusEl.innerText = "❌ Kamera gagal: " + (lastErr ? lastErr.message : "Tidak diizinkan") + ". Coba restart Chrome atau izinkan kamera!";
+        statusEl.innerText = "❌ Kamera gagal diakses.";
         return;
       }
 
-      try {
-        currentStream = stream;
-        video.srcObject = stream;
-        // Penanganan play() yang didukung oleh semua device
-        await new Promise((resolve) => {
-          video.onloadedmetadata = () => {
-            video.play().then(resolve).catch(resolve);
-          };
-        });
-        
-        statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak, lalu tekan POTRET.";
-        btnStart.style.display = 'none';
-        btnSnap.style.display = 'block';
-      } catch (err) {
-        btnStart.disabled = false;
-        statusEl.innerText = "❌ Gagal memutar video kamera: " + err.message;
-      }
+      currentStream = stream;
+      video.srcObject = stream;
+      video.play();
+      
+      statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak.";
+      btnStart.style.display = 'none';
+      btnSnap.style.display = 'block';
     }
 
     async function takeSnapAndScan() {
       btnSnap.disabled = true;
       statusEl.innerText = "⚙️ Memotong gambar & membaca teks...";
-      document.getElementById('resultsContainer').innerHTML = '';
       ocrDebugEl.style.display = 'none';
 
       const vW = video.videoWidth || 640;
@@ -200,12 +196,7 @@
         });
         
         const responseText = await response.text();
-        let resData;
-        try {
-          resData = JSON.parse(responseText);
-        } catch(e) {
-          throw new Error("Server Error");
-        }
+        let resData = JSON.parse(responseText);
 
         if (!response.ok || !resData.success) {
           throw new Error(resData.message || "Gagal memproses data.");
@@ -214,7 +205,19 @@
         if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
           statusEl.innerText = "⚡ Data Ditemukan!";
-          renderResult(resData.matches[0]);
+          
+          // Tanggal Hari Ini sebagai Nilai Default (YYYY-MM-DD)
+          const today = new Date().toISOString().split('T')[0];
+          
+          // Masukkan ke paling atas riwayat
+          scannedHistory.unshift({
+            id: Date.now(),
+            matchedData: resData.matches[0],
+            tanggalSerahTerima: today,
+            saved: false
+          });
+
+          renderHistory();
         } else {
           statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master Data.";
         }
@@ -225,61 +228,99 @@
       }
     }
 
-    // Fungsi Render Tampilan untuk Menampilkan Kolom A-F (6 Kolom Pertama)
-    function renderResult(data) {
-      currentMatchedData = data; 
+    function renderHistory() {
+      const container = document.getElementById('resultsContainer');
+      const historySection = document.getElementById('historySection');
       
-      // Mengambil 6 kolom paling awal dari hasil respons spreadsheet
-      const firstSixColumns = Object.entries(data).slice(0, 6);
-      
-      let infoRowsHTML = '';
-      firstSixColumns.forEach(([headerName, value]) => {
-        if (headerName && headerName.trim() !== '') {
-          infoRowsHTML += `
-            <div class="info-row">
-              <div class="info-label">${headerName}</div>
-              <div class="info-value">${value || '-'}</div>
+      if (scannedHistory.length === 0) {
+        historySection.style.display = 'none';
+        return;
+      }
+
+      historySection.style.display = 'block';
+      let html = '';
+
+      scannedHistory.forEach((item, index) => {
+        const data = item.matchedData;
+        const firstSixColumns = Object.entries(data).slice(0, 6);
+        
+        let infoRowsHTML = '';
+        firstSixColumns.forEach(([headerName, value]) => {
+          if (headerName && headerName.trim() !== '') {
+            infoRowsHTML += `
+              <div class="info-row">
+                <div class="info-label">${headerName}</div>
+                <div class="info-value">${value || '-'}</div>
+              </div>
+            `;
+          }
+        });
+
+        html += `
+          <div class="result-card" id="card-${item.id}">
+            <h4>✅ #${scannedHistory.length - index}. Match ID: ${data.shipment_external_id || 'Data Valid'}</h4>
+            
+            <div class="info-table">
+              ${infoRowsHTML}
             </div>
-          `;
-        }
+
+            <div class="date-input-group">
+              <label>📅 Tgl Serah Terima:</label>
+              <input type="date" value="${item.tanggalSerahTerima}" 
+                onchange="updateTanggal(${item.id}, this.value)" 
+                ${item.saved ? 'disabled' : ''}>
+            </div>
+
+            ${item.saved 
+              ? '<p style="color:green; font-weight:bold; margin: 10px 0 0 0; text-align:center;">🎉 Tersimpan di Paxel</p>'
+              : `<button class="btn-select" id="btn-save-${item.id}" onclick="saveItem(${item.id})">Simpan ke Sheet Paxel</button>`
+            }
+          </div>
+        `;
       });
 
-      const container = document.getElementById('resultsContainer');
-      container.innerHTML = `
-        <div class="result-card">
-          <h4>✅ Match ID: ${data.shipment_external_id || 'Data Ditemukan'}</h4>
-          <div class="info-table">
-            ${infoRowsHTML}
-          </div>
-          <button class="btn-select" id="btnSave" onclick="saveToPaxel()">Simpan ke Sheet Paxel</button>
-        </div>
-      `;
+      container.innerHTML = html;
     }
 
-    async function saveToPaxel() {
-      const btnSave = document.getElementById('btnSave');
+    function updateTanggal(itemId, newDate) {
+      const target = scannedHistory.find(x => x.id === itemId);
+      if (target) {
+        target.tanggalSerahTerima = newDate;
+      }
+    }
+
+    async function saveItem(itemId) {
+      const target = scannedHistory.find(x => x.id === itemId);
+      if (!target) return;
+
+      const btnSave = document.getElementById(`btn-save-${itemId}`);
       btnSave.disabled = true;
-      statusEl.innerText = '💾 Menyimpan ke Paxel...';
+      btnSave.innerText = '💾 Menyimpan...';
 
       try {
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save', selectedData: currentMatchedData })
+          body: JSON.stringify({ 
+            action: 'save', 
+            selectedData: target.matchedData,
+            tanggalSerahTerima: target.tanggalSerahTerima
+          })
         });
         
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
         if (!response.ok || !resData.success) {
-          throw new Error(resData.message || "Gagal menyimpan ke Sheet Paxel.");
+          throw new Error(resData.message || "Gagal menyimpan.");
         }
 
-        document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px; text-align:center;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
-        statusEl.innerText = "Siap memindai kode berikutnya.";
+        target.saved = true;
+        renderHistory();
       } catch (e) {
-        statusEl.innerText = '❌ Error: ' + e.message;
+        alert('❌ Error: ' + e.message);
         btnSave.disabled = false;
+        btnSave.innerText = 'Simpan ke Sheet Paxel';
       }
     }
   </script>

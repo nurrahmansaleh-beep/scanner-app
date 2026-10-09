@@ -1,4 +1,4 @@
-import { google } from 'googleapis';
+const { google } = require('googleapis');
 
 function cleanText(str) {
   if (!str) return '';
@@ -8,17 +8,21 @@ function cleanText(str) {
     .replace(/O/g, '0');
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ success: false, message: 'Method Not Allowed' });
+module.exports = async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ success: false, message: 'Method Not Allowed' });
+  }
 
   try {
     const { action, ocrText, selectedData } = req.body;
 
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      return res.status(500).json({ success: false, message: 'Env Variable GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel!' });
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' 
+      });
     }
 
-    // Tangani format private_key agar tidak rusak saat dibaca Vercel
     let credentials;
     try {
       const rawCreds = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -27,7 +31,10 @@ export default async function handler(req, res) {
         credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
       }
     } catch (e) {
-      return res.status(500).json({ success: false, message: 'Format teks JSON Kredensial di Vercel salah: ' + e.message });
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Format JSON GOOGLE_SERVICE_ACCOUNT di Vercel salah: ' + e.message 
+      });
     }
 
     const auth = new google.auth.GoogleAuth({
@@ -45,13 +52,18 @@ export default async function handler(req, res) {
       });
       
       const rows = response.data.values;
-      if (!rows || rows.length === 0) return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
+      }
 
       const headers = rows[0];
       const idIndex = headers.findIndex(h => h.trim() === 'shipment_external_id');
       
       if (idIndex === -1) {
-        return res.status(400).json({ success: false, message: 'Header shipment_external_id tidak ditemukan di Master Data.' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Header shipment_external_id tidak ditemukan di Master Data.' 
+        });
       }
 
       const matches = [];
@@ -92,10 +104,9 @@ export default async function handler(req, res) {
     }
 
   } catch (error) {
-    // Menampilkan detail error spesifik ke layar HP
     return res.status(500).json({ 
       success: false, 
-      message: 'Detail Error Google: ' + (error.message || error.toString()) 
+      message: 'Error Google API: ' + (error.message || error.toString()) 
     });
   }
-}
+};

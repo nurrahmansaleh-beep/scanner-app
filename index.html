@@ -40,7 +40,6 @@
     <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye. Pastikan <b>tulisan terbaca jelas</b> (tidak blur).</p>
 
     <div class="camera-wrapper">
-      <!-- Muted wajib ada agar browser mengizinkan tayangan live -->
       <video id="videoElement" autoplay playsinline muted></video>
       <div class="scan-box" id="scanBox"></div>
     </div>
@@ -74,3 +73,91 @@
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime); 
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15); 
+      } catch (e) {}
+    }
+
+    async function startCamera() {
+      statusEl.innerText = "🎥 Meminta izin kamera...";
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.innerText = "❌ Browser tidak mendukung kamera.";
+        btnSnap.disabled = true;
+        return;
+      }
+
+      const constraintsList = [
+        { video: { facingMode: { exact: "environment" } } },
+        { video: { facingMode: "environment" } },
+        { video: true }
+      ];
+
+      let stream = null;
+      let lastError = null;
+
+      for (const constraints of constraintsList) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!stream) {
+        statusEl.innerText = "❌ Gagal: " + (lastError ? lastError.message : "Akses ditolak");
+        btnSnap.disabled = true;
+        return;
+      }
+
+      video.srcObject = stream;
+      
+      const readyCallback = () => {
+        video.play().then(() => {
+          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
+        }).catch(() => {
+          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
+        });
+      };
+
+      video.onloadeddata = readyCallback;
+
+      // Timer pengaman apabila browser tidak memicu event onloadeddata
+      setTimeout(() => {
+        if (statusEl.innerText.includes("Meminta izin")) {
+          readyCallback();
+        }
+      }, 1500);
+    }
+
+    async function takeSnapAndScan() {
+      btnSnap.disabled = true;
+      statusEl.innerText = "⚙️ Memotong gambar & membaca teks...";
+      document.getElementById('resultsContainer').innerHTML = '';
+      ocrDebugEl.style.display = 'none';
+
+      const vW = video.videoWidth || 1280;
+      const vH = video.videoHeight || 720;
+      const cropW = vW * 0.75; 
+      const cropH = vH * 0.12;
+      const cropX = (vW - cropW) / 2;
+      const cropY = (vH - cropH) / 2;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      
+      const imageDataURL = canvas.toDataURL('image/jpeg', 1.0);
+      debugCanvasImage.src = imageDataURL;
+      ocrDebugEl.style.display = 'block';
+
+      try {

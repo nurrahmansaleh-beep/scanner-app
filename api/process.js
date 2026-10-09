@@ -16,13 +16,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { action, ocrText, selectedData, tanggalSerahTerima } = req.body;
+    const { action, ocrText, items } = req.body; // Kita ambil 'items' untuk array massal
 
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' 
-      });
+      return res.status(500).json({ success: false, message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' });
     }
 
     let creds;
@@ -33,10 +30,7 @@ module.exports = async function handler(req, res) {
         creds.private_key = creds.private_key.replace(/\\n/g, '\n');
       }
     } catch (e) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Format JSON GOOGLE_SERVICE_ACCOUNT di Vercel tidak valid: ' + e.message 
-      });
+      return res.status(500).json({ success: false, message: 'Format JSON salah: ' + e.message });
     }
 
     const client = new JWT({
@@ -47,72 +41,63 @@ module.exports = async function handler(req, res) {
 
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
+    // AKSI PENCARIAN (TIDAK BERUBAH)
     if (action === 'liveTextScan') {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
       const googleRes = await client.request({ url });
       
       const rows = googleRes.data.values;
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
-      }
+      if (!rows || rows.length === 0) return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
 
       const headers = rows[0];
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       
-      if (idIndex === -1) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Header shipment_external_id tidak ditemukan di Master Data.' 
-        });
-      }
+      if (idIndex === -1) return res.status(400).json({ success: false, message: 'Header shipment_external_id tidak ditemukan.' });
 
       const matches = [];
       const cleanedOCR = cleanText(ocrText);
 
       for (let i = 1; i < rows.length; i++) {
-        const rowData = rows[i];
-        const rawShipmentId = rowData[idIndex];
-        
+        const rawShipmentId = rows[i][idIndex];
         if (rawShipmentId) {
           const cleanedMasterId = cleanText(rawShipmentId);
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
             let rowObj = {};
-            headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
+            headers.forEach((h, idx) => { rowObj[h] = rows[i][idx] || ''; });
             matches.push(rowObj);
             break; 
           }
         }
       }
-      
       return res.status(200).json({ success: true, matches });
     }
 
-    if (action === 'save') {
+    // AKSI PENYIMPANAN MASSAL BARU (SUPER CEPAT)
+    if (action === 'saveBulk') {
+      if (!items || items.length === 0) return res.status(400).json({ success: false, message: 'Tidak ada data untuk disimpan.' });
+
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       
-      // Ambil seluruh data sesuai struktur Master Data
-      const rowValues = Object.values(selectedData);
-      
-      // Tambahkan Tanggal Serah Terima (Manual Input) & Timestamp Otomatis Sistem
-      rowValues.push(tanggalSerahTerima || '-');
-      rowValues.push(timestamp);
+      // Mengonversi Array of Objects dari frontend menjadi Array of Arrays untuk Google Sheet
+      const values = items.map(item => {
+        const rowValues = Object.values(item.selectedData); // Data master
+        rowValues.push(item.tanggalSerahTerima || '-');     // Tanggal input user
+        rowValues.push(timestamp);                          // Tanggal waktu klik simpan
+        return rowValues;
+      });
 
-      const values = [rowValues];
-
+      // Simpan seluruh array sekaligus (Google Sheet akan merendernya ke bawah otomatis)
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,
         method: 'POST',
-        data: { values }
+        data: { values } // 'values' berisi puluhan baris sekaligus
       });
 
       return res.status(200).json({ success: true });
     }
 
   } catch (error) {
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Gagal Google API: ' + (error.message || error.toString()) 
-    });
+    return res.status(500).json({ success: false, message: 'Gagal Google API: ' + (error.message || error.toString()) });
   }
 };

@@ -33,11 +33,11 @@
     .result-card h4 { margin: 0 0 12px 0; color: #1a73e8; font-size: 16px; }
     .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 15px; }
     
-    /* Style Tabel Informasi */
-    .info-table { background: white; padding: 12px; border-radius: 8px; font-size: 13px; border: 1px solid #cce5ff; }
+    /* Tabel Informasi Kolom A - F */
+    .info-table { background: white; padding: 12px; border-radius: 8px; font-size: 13px; border: 1px solid #cce5ff; margin-top: 5px; }
     .info-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #e0e0e0; }
     .info-row:last-child { border-bottom: none; }
-    .info-label { color: #555; width: 45%; }
+    .info-label { color: #555; width: 45%; font-weight: 500; }
     .info-value { color: #111; width: 55%; font-weight: bold; text-align: right; word-break: break-word; }
   </style>
 </head>
@@ -80,7 +80,7 @@
     const ctx = canvas.getContext('2d');
     
     let currentStream = null;
-    let currentMatchedData = null; // Menyimpan data sementara untuk dikirim
+    let currentMatchedData = null;
 
     function playBeepSound() {
       try {
@@ -97,6 +97,7 @@
       } catch (e) {}
     }
 
+    // Fungsi Pengaktif Kamera Multi-Skenario Ringan & Tanpa Crash
     async function startCamera() {
       statusEl.innerText = "⌛ Meminta akses kamera...";
       btnStart.disabled = true;
@@ -105,6 +106,182 @@
         currentStream.getTracks().forEach(track => track.stop());
       }
 
+      // Daftar konfigurasi dari yang spesifik ke yang paling sederhana
+      const tryConstraints = [
+        { video: { facingMode: "environment" } }, // Kamera belakang standar
+        { video: { facingMode: "user" } },        // Fallback: kamera depan (jika belakang error)
+        { video: true }                            // Fallback: kamera apa saja yang aktif
+      ];
+
+      let stream = null;
+      let lastErr = null;
+
+      for (let constraints of tryConstraints) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break; // Berhasil, keluar dari percobaan
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      if (!stream) {
+        btnStart.disabled = false;
+        statusEl.innerText = "❌ Kamera gagal: " + (lastErr ? lastErr.message : "Tidak diizinkan") + ". Coba restart Chrome atau izinkan kamera!";
+        return;
+      }
+
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment", width: { ideal: 128
+        currentStream = stream;
+        video.srcObject = stream;
+        // Penanganan play() yang didukung oleh semua device
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play().then(resolve).catch(resolve);
+          };
+        });
+        
+        statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak, lalu tekan POTRET.";
+        btnStart.style.display = 'none';
+        btnSnap.style.display = 'block';
+      } catch (err) {
+        btnStart.disabled = false;
+        statusEl.innerText = "❌ Gagal memutar video kamera: " + err.message;
+      }
+    }
+
+    async function takeSnapAndScan() {
+      btnSnap.disabled = true;
+      statusEl.innerText = "⚙️ Memotong gambar & membaca teks...";
+      document.getElementById('resultsContainer').innerHTML = '';
+      ocrDebugEl.style.display = 'none';
+
+      const vW = video.videoWidth || 640;
+      const vH = video.videoHeight || 480;
+      const cropW = vW * 0.75; 
+      const cropH = vH * 0.12;
+      const cropX = (vW - cropW) / 2;
+      const cropY = (vH - cropH) / 2;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      
+      const imageDataURL = canvas.toDataURL('image/jpeg', 0.9);
+      debugCanvasImage.src = imageDataURL;
+      ocrDebugEl.style.display = 'block';
+
+      try {
+        const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
+        let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
+
+        let cleanIdText = "";
+        const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
+        if (idPattern && idPattern.length > 0) {
+          cleanIdText = idPattern[0];
+        }
+
+        debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
+
+        if (!cleanIdText) {
+          statusEl.innerText = "❌ ID tidak terbaca. Pastikan foto tidak blur.";
+          btnSnap.disabled = false;
+          return;
+        }
+
+        statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
+
+        const response = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
+        });
+        
+        const responseText = await response.text();
+        let resData;
+        try {
+          resData = JSON.parse(responseText);
+        } catch(e) {
+          throw new Error("Server Error");
+        }
+
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Gagal memproses data.");
+        }
+
+        if (resData.matches && resData.matches.length > 0) {
+          playBeepSound();
+          statusEl.innerText = "⚡ Data Ditemukan!";
+          renderResult(resData.matches[0]);
+        } else {
+          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master Data.";
+        }
+      } catch (e) {
+        statusEl.innerText = "❌ Error: " + e.message;
+      } finally {
+        btnSnap.disabled = false;
+      }
+    }
+
+    // Fungsi Render Tampilan untuk Menampilkan Kolom A-F (6 Kolom Pertama)
+    function renderResult(data) {
+      currentMatchedData = data; 
+      
+      // Mengambil 6 kolom paling awal dari hasil respons spreadsheet
+      const firstSixColumns = Object.entries(data).slice(0, 6);
+      
+      let infoRowsHTML = '';
+      firstSixColumns.forEach(([headerName, value]) => {
+        if (headerName && headerName.trim() !== '') {
+          infoRowsHTML += `
+            <div class="info-row">
+              <div class="info-label">${headerName}</div>
+              <div class="info-value">${value || '-'}</div>
+            </div>
+          `;
+        }
+      });
+
+      const container = document.getElementById('resultsContainer');
+      container.innerHTML = `
+        <div class="result-card">
+          <h4>✅ Match ID: ${data.shipment_external_id || 'Data Ditemukan'}</h4>
+          <div class="info-table">
+            ${infoRowsHTML}
+          </div>
+          <button class="btn-select" id="btnSave" onclick="saveToPaxel()">Simpan ke Sheet Paxel</button>
+        </div>
+      `;
+    }
+
+    async function saveToPaxel() {
+      const btnSave = document.getElementById('btnSave');
+      btnSave.disabled = true;
+      statusEl.innerText = '💾 Menyimpan ke Paxel...';
+
+      try {
+        const response = await fetch('/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save', selectedData: currentMatchedData })
+        });
+        
+        const responseText = await response.text();
+        let resData = JSON.parse(responseText);
+
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Gagal menyimpan ke Sheet Paxel.");
+        }
+
+        document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px; text-align:center;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
+        statusEl.innerText = "Siap memindai kode berikutnya.";
+      } catch (e) {
+        statusEl.innerText = '❌ Error: ' + e.message;
+        btnSave.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

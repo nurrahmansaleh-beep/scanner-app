@@ -10,42 +10,38 @@
     .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
     h3 { margin-top: 0; color: #1a73e8; }
     
-    /* Viewfinder Kamera Web */
     .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
     /* Kotak Target */
     .scan-box {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 85%; height: 60px; border: 3px solid #ff9800; border-radius: 8px;
+      width: 80%; height: 50px; border: 3px solid #ff9800; border-radius: 8px;
       box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.45); pointer-events: none;
     }
     
-    /* Tombol Potret di Dalam Web */
-    .btn-snap {
-      background: #1a73e8; color: white; border: none; padding: 14px 20px;
-      border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%;
-      cursor: pointer; box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
-    }
+    .btn-snap { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; cursor: pointer; }
     .btn-snap:active { background: #1557b0; }
-    .btn-snap:disabled { background: #ccc; box-shadow: none; cursor: not-allowed; }
+    .btn-snap:disabled { background: #ccc; cursor: not-allowed; }
     
     #status { font-weight: bold; margin: 15px 0 5px 0; color: #333; font-size: 14px; }
-    #ocrDebug { font-size: 12px; color: #555; background: #f8f9fa; padding: 8px; border-radius: 6px; border: 1px dashed #ccc; margin-top: 5px; word-break: break-all; }
+    
+    /* Kotak Debugging Baru */
+    #ocrDebug { font-size: 13px; color: #333; background: #fff; padding: 10px; border-radius: 8px; border: 2px dashed #ff9800; margin-top: 10px; display: none; }
+    #debugCanvasImage { width: 100%; max-height: 80px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; }
     
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
     .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
     .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; }
-    .btn-select:active { background: #1e7e34; }
   </style>
 </head>
 <body>
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Pas-kan kode ID di dalam <b>KOTAK ORANYE</b>, lalu tekan tombol potret.</p>
+    <p style="font-size: 13px; color: #666;">Posisikan HP agak menjauh sedikit agar <b>fokus (tidak blur)</b>. Pas-kan ID di dalam kotak.</p>
 
-    <!-- Kamera Langsung di Tampilan Web -->
+    <!-- Kamera Web -->
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline></video>
       <div class="scan-box" id="scanBox"></div>
@@ -57,7 +53,13 @@
     <canvas id="canvasElement" style="display:none;"></canvas>
 
     <div id="status">Membuka kamera...</div>
-    <div id="ocrDebug" style="display:none;"></div>
+    
+    <!-- Tampilan Apa yang Dilihat oleh Sistem OCR -->
+    <div id="ocrDebug">
+      <b>Teks yang Terbaca:</b> <span id="debugText" style="color:#d9534f;">-</span><br>
+      <small style="color:#666;">Potongan gambar yang dianalisa mesin:</small>
+      <img id="debugCanvasImage" alt="Potongan OCR">
+    </div>
     
     <div id="resultsContainer"></div>
   </div>
@@ -67,7 +69,8 @@
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
     const ocrDebugEl = document.getElementById('ocrDebug');
-    const scanBox = document.getElementById('scanBox');
+    const debugTextEl = document.getElementById('debugText');
+    const debugCanvasImage = document.getElementById('debugCanvasImage');
     const btnSnap = document.getElementById('btnSnap');
     const ctx = canvas.getContext('2d');
 
@@ -86,19 +89,18 @@
       } catch (e) {}
     }
 
-    // Buka Kamera Langsung di Web
     async function startCamera() {
       try {
-        statusEl.innerText = "🎥 Membuka kamera...";
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+          // Memaksa resolusi tinggi dan auto-focus (jika HP mendukung)
+          video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: "continuous" }] } 
         });
         video.srcObject = stream;
         video.onloadedmetadata = () => {
           statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
         };
       } catch (err) {
-        statusEl.innerText = "❌ Gagal membuka kamera. Pastikan izin kamera di browser aktif.";
+        statusEl.innerText = "❌ Gagal membuka kamera.";
         btnSnap.disabled = true;
       }
     }
@@ -109,42 +111,45 @@
       document.getElementById('resultsContainer').innerHTML = '';
       ocrDebugEl.style.display = 'none';
 
-      // 1. Hitung Koordinat Kotak Oranye Secara Presisi
-      const videoRect = video.getBoundingClientRect();
-      const boxRect = scanBox.getBoundingClientRect();
-
-      const scaleX = video.videoWidth / videoRect.width;
-      const scaleY = video.videoHeight / videoRect.height;
-
-      const cropX = (boxRect.left - videoRect.left) * scaleX;
-      const cropY = (boxRect.top - videoRect.top) * scaleY;
-      const cropW = boxRect.width * scaleX;
-      const cropH = boxRect.height * scaleY;
+      // 1. Potong Tengah Berdasarkan Resolusi Asli Video (Sangat Akurat)
+      const vW = video.videoWidth;
+      const vH = video.videoHeight;
+      
+      // Ambil 75% lebar tengah dan 18% tinggi tengah (menyesuaikan bentuk kotak)
+      const cropW = vW * 0.75; 
+      const cropH = vH * 0.18;
+      const cropX = (vW - cropW) / 2;
+      const cropY = (vH - cropH) / 2;
 
       canvas.width = cropW;
       canvas.height = cropH;
 
-      // 2. Ambil Gambar Hanya di Dalam Kotak Oranye
+      // 2. Tambahkan Filter Hitam-Putih & Kontras Tinggi agar teks tajam
+      ctx.filter = 'grayscale(100%) contrast(200%) brightness(120%)';
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      const imageDataURL = canvas.toDataURL('image/jpeg', 0.95);
+      
+      const imageDataURL = canvas.toDataURL('image/jpeg', 1.0);
+      
+      // Tampilkan potongan gambar di layar agar User tahu apa yang dibaca mesin
+      debugCanvasImage.src = imageDataURL;
+      ocrDebugEl.style.display = 'block';
 
       try {
-        // 3. OCR Tesseract Hanya Pada Gambar yang Dipotong
+        // 3. OCR Tesseract
         const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
-        const cleanReadText = text ? text.trim() : '';
+        const cleanReadText = text ? text.replace(/\n/g, ' ').trim() : '';
 
-        ocrDebugEl.innerText = "Teks Terbaca di Kotak: " + (cleanReadText || "[Kosong]");
-        ocrDebugEl.style.display = 'block';
+        debugTextEl.innerText = cleanReadText || "[Kosong]";
 
         if (!cleanReadText || cleanReadText.length < 3) {
-          statusEl.innerText = "❌ Teks di kotak tidak terbaca. Pastikan ID pas di dalam kotak oranye.";
+          statusEl.innerText = "❌ Gagal baca. Posisikan sedikit menjauh agar kamera fokus.";
           btnSnap.disabled = false;
           return;
         }
 
-        statusEl.innerText = "🔍 Mencari ID di Master Data...";
+        statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
 
-        // 4. Kirim ke Server Backend
+        // 4. Kirim ke Server
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -158,7 +163,7 @@
           statusEl.innerText = "⚡ Data Ditemukan!";
           renderResult(resData.matches[0]);
         } else {
-          statusEl.innerText = "❌ ID tidak cocok dengan Master Data.";
+          statusEl.innerText = "❌ ID tidak cocok dengan data GSheet.";
         }
       } catch (e) {
         statusEl.innerText = "❌ Gagal memproses gambar.";
@@ -171,7 +176,7 @@
       const container = document.getElementById('resultsContainer');
       container.innerHTML = `
         <div class="result-card">
-          <h4>✅ Ditemukan ID: ${data.shipment_external_id}</h4>
+          <h4>✅ Match ID: ${data.shipment_external_id}</h4>
           <button class="btn-select" id="btnSave" onclick='saveToPaxel(${JSON.stringify(data)})'>Simpan ke Sheet Paxel</button>
         </div>
       `;

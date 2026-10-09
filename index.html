@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <title>Scanner DO Balik</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
@@ -40,7 +38,7 @@
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Tekan tombol biru untuk membuka kamera.</p>
+    <p style="font-size: 13px; color: #666;">Aktifkan kamera, pas-kan ID di kotak oranye, lalu tekan potret.</p>
 
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline muted></video>
@@ -52,7 +50,7 @@
 
     <canvas id="canvasElement" style="display:none;"></canvas>
 
-    <div id="status">Klik tombol biru di atas untuk menyalakan kamera.</div>
+    <div id="status">Tekan tombol biru untuk mengaktifkan kamera.</div>
     
     <div id="ocrDebug">
       <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:16px;">-</span><br>
@@ -111,7 +109,7 @@
         btnSnap.style.display = 'block';
       } catch (err) {
         btnStart.disabled = false;
-        statusEl.innerText = "❌ Kamera gagal: " + err.message + ". Pastikan izin kamera aktif di Chrome!";
+        statusEl.innerText = "❌ Kamera gagal: " + err.message;
       }
     }
 
@@ -164,10 +162,16 @@
           body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
         });
         
-        const resData = await response.json();
-        
+        const responseText = await response.text();
+        let resData;
+        try {
+          resData = JSON.parse(responseText);
+        } catch(e) {
+          throw new Error("Server Crash (HTML Error): " + responseText.substring(0, 100));
+        }
+
         if (!response.ok || !resData.success) {
-          throw new Error(resData.message || "Error dari server Google.");
+          throw new Error(resData.message || "Gagal memproses data.");
         }
 
         if (resData.matches && resData.matches.length > 0) {
@@ -206,7 +210,8 @@
           body: JSON.stringify({ action: 'save', selectedData: selectedData })
         });
         
-        const resData = await response.json();
+        const responseText = await response.text();
+        let resData = JSON.parse(responseText);
 
         if (!response.ok || !resData.success) {
           throw new Error(resData.message || "Gagal menyimpan ke Sheet Paxel.");

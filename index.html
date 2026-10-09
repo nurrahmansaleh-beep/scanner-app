@@ -13,11 +13,11 @@
     .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
-    /* Kotak Target */
+    /* Kotak Target - Dibuat lebih tipis agar tabel/garis tidak ikut */
     .scan-box {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 80%; height: 50px; border: 3px solid #ff9800; border-radius: 8px;
-      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.45); pointer-events: none;
+      width: 75%; height: 40px; border: 3px solid #ff9800; border-radius: 6px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5); pointer-events: none;
     }
     
     .btn-snap { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; cursor: pointer; }
@@ -26,9 +26,8 @@
     
     #status { font-weight: bold; margin: 15px 0 5px 0; color: #333; font-size: 14px; }
     
-    /* Kotak Debugging Baru */
     #ocrDebug { font-size: 13px; color: #333; background: #fff; padding: 10px; border-radius: 8px; border: 2px dashed #ff9800; margin-top: 10px; display: none; }
-    #debugCanvasImage { width: 100%; max-height: 80px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; }
+    #debugCanvasImage { width: 100%; max-height: 60px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; }
     
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
     .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
@@ -39,24 +38,21 @@
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Posisikan HP agak menjauh sedikit agar <b>fokus (tidak blur)</b>. Pas-kan ID di dalam kotak.</p>
+    <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye. Pastikan <b>tulisan terbaca jelas</b> (tidak blur).</p>
 
-    <!-- Kamera Web -->
     <div class="camera-wrapper">
       <video id="videoElement" autoplay playsinline></video>
       <div class="scan-box" id="scanBox"></div>
     </div>
     
-    <!-- Tombol Potret -->
     <button class="btn-snap" id="btnSnap" onclick="takeSnapAndScan()">📸 POTRET & SCAN</button>
 
     <canvas id="canvasElement" style="display:none;"></canvas>
 
     <div id="status">Membuka kamera...</div>
     
-    <!-- Tampilan Apa yang Dilihat oleh Sistem OCR -->
     <div id="ocrDebug">
-      <b>Teks yang Terbaca:</b> <span id="debugText" style="color:#d9534f;">-</span><br>
+      <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:16px;">-</span><br>
       <small style="color:#666;">Potongan gambar yang dianalisa mesin:</small>
       <img id="debugCanvasImage" alt="Potongan OCR">
     </div>
@@ -92,7 +88,6 @@
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          // Memaksa resolusi tinggi dan auto-focus (jika HP mendukung)
           video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: "continuous" }] } 
         });
         video.srcObject = stream;
@@ -111,62 +106,71 @@
       document.getElementById('resultsContainer').innerHTML = '';
       ocrDebugEl.style.display = 'none';
 
-      // 1. Potong Tengah Berdasarkan Resolusi Asli Video (Sangat Akurat)
+      // 1. Rumus Potong Dipersempit (Hanya 10% tinggi kamera untuk 1 baris teks)
       const vW = video.videoWidth;
       const vH = video.videoHeight;
-      
-      // Ambil 75% lebar tengah dan 18% tinggi tengah (menyesuaikan bentuk kotak)
       const cropW = vW * 0.75; 
-      const cropH = vH * 0.18;
+      const cropH = vH * 0.10; // Sangat tipis!
       const cropX = (vW - cropW) / 2;
       const cropY = (vH - cropH) / 2;
 
       canvas.width = cropW;
       canvas.height = cropH;
 
-      // 2. Tambahkan Filter Hitam-Putih & Kontras Tinggi agar teks tajam
-      ctx.filter = 'grayscale(100%) contrast(200%) brightness(120%)';
+      // 2. Filter Hitam Putih agar teks menonjol
+      ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       
       const imageDataURL = canvas.toDataURL('image/jpeg', 1.0);
-      
-      // Tampilkan potongan gambar di layar agar User tahu apa yang dibaca mesin
       debugCanvasImage.src = imageDataURL;
       ocrDebugEl.style.display = 'block';
 
       try {
-        // 3. OCR Tesseract
+        // 3. Baca dengan Mesin OCR
         const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
-        const cleanReadText = text ? text.replace(/\n/g, ' ').trim() : '';
+        let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
 
-        debugTextEl.innerText = cleanReadText || "[Kosong]";
+        // 4. SARINGAN PINTAR (Hanya mengambil gabungan Huruf, Angka, dan Strip minimal 5 karakter)
+        let cleanIdText = "";
+        const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
+        
+        if (idPattern && idPattern.length > 0) {
+          cleanIdText = idPattern[0]; // Ambil tangkapan ID yang pertama
+        }
 
-        if (!cleanReadText || cleanReadText.length < 3) {
-          statusEl.innerText = "❌ Gagal baca. Posisikan sedikit menjauh agar kamera fokus.";
+        debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
+
+        if (!cleanIdText) {
+          statusEl.innerText = "❌ ID tidak terbaca. Pastikan foto tidak blur.";
           btnSnap.disabled = false;
           return;
         }
 
         statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
 
-        // 4. Kirim ke Server
+        // 5. Kirim ke Server
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanReadText })
+          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
         });
         
+        if (!response.ok) throw new Error("Gagal menghubungi Google Sheet (Server Error).");
+        
         const resData = await response.json();
+        
+        if (!resData.success) throw new Error(resData.message || "Gagal dari sistem Sheet.");
 
-        if (resData.success && resData.matches && resData.matches.length > 0) {
+        if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
           statusEl.innerText = "⚡ Data Ditemukan!";
           renderResult(resData.matches[0]);
         } else {
-          statusEl.innerText = "❌ ID tidak cocok dengan data GSheet.";
+          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ditemukan di Master Data.";
         }
       } catch (e) {
-        statusEl.innerText = "❌ Gagal memproses gambar.";
+        // Error akan tampil jelas di sini jika gagal
+        statusEl.innerText = "❌ Error: " + e.message;
       } finally {
         btnSnap.disabled = false;
       }
@@ -193,17 +197,18 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'save', selectedData: selectedData })
         });
+        
+        if (!response.ok) throw new Error("Server gagal merespon.");
 
         const resData = await response.json();
         if (resData.success) {
           document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
           statusEl.innerText = "Siap memindai kode berikutnya.";
         } else {
-          statusEl.innerText = '❌ Gagal menyimpan.';
-          btnSave.disabled = false;
+          throw new Error(resData.message || "Gagal menyimpan.");
         }
       } catch (e) {
-        statusEl.innerText = '❌ Gangguan koneksi.';
+        statusEl.innerText = '❌ Error: ' + e.message;
         btnSave.disabled = false;
       }
     }

@@ -1,12 +1,16 @@
 import { google } from 'googleapis';
 
-// Fungsi Normalisasi Teks untuk Pencocokan Fleksibel
+// Normalisasi karakter yang sering tertukar pada sistem OCR
 function cleanText(str) {
   if (!str) return '';
   return str.toString()
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '') // Hapus strip (-), spasi, titik, koma
-    .replace(/O/g, '0');        // Ubah semua huruf 'O' menjadi angka '0'
+    .replace(/[^A-Z0-9]/g, '') // Hapus strip (-), spasi, dsb
+    .replace(/O/g, '0')        // Huruf O disamakan dengan Angka 0
+    .replace(/G/g, '6')        // Huruf G disamakan dengan Angka 6
+    .replace(/Z/g, '2')        // Huruf Z disamakan dengan Angka 2
+    .replace(/B/g, '8')        // Huruf B disamakan dengan Angka 8
+    .replace(/[IL]/g, '1');     // Huruf I / L disamakan dengan Angka 1
 }
 
 export default async function handler(req, res) {
@@ -23,9 +27,6 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
-    // ==========================================
-    // AKSI 1: MENCARI TEKS DENGAN NORMALISASI
-    // ==========================================
     if (action === 'liveTextScan') {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -43,7 +44,7 @@ export default async function handler(req, res) {
       }
 
       const matches = [];
-      const cleanedOCR = cleanText(ocrText); // Hasil bacaan kamera yang sudah dibersihkan
+      const cleanedOCR = cleanText(ocrText);
 
       for (let i = 1; i < rows.length; i++) {
         const rowData = rows[i];
@@ -52,8 +53,8 @@ export default async function handler(req, res) {
         if (rawShipmentId) {
           const cleanedMasterId = cleanText(rawShipmentId);
           
-          // Cocokkan ID yang sudah dibersihkan dari simbol & beda huruf/angka
-          if (cleanedMasterId.length >= 4 && cleanedOCR.includes(cleanedMasterId)) {
+          // Cocokkan jika ID master berada di dalam teks hasil scan
+          if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
               let rowObj = {};
               headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
               matches.push(rowObj);
@@ -65,9 +66,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, matches });
     }
 
-    // ==========================================
-    // AKSI 2: SIMPAN KE SHEET PAXEL
-    // ==========================================
     if (action === 'save') {
        const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
        const values = [

@@ -32,14 +32,21 @@
     /* Section Riwayat */
     .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; font-weight:bold; }
     
-    /* Bulk Controls Panel */
-    .bulk-controls { display: flex; justify-content: space-between; align-items: center; background: #fff; border: 1px solid #cce5ff; padding: 10px 12px; border-radius: 10px; margin-bottom: 15px; }
+    /* Panel Kontrol Massal (Diperbarui) */
+    .bulk-controls { display: flex; flex-direction: column; gap: 12px; background: #fff; border: 1px solid #cce5ff; padding: 14px; border-radius: 10px; margin-bottom: 15px; }
+    .bulk-header { display: flex; justify-content: space-between; align-items: center; }
     .select-all-wrap { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; color: #333; cursor: pointer; }
     .select-all-wrap input { width: 18px; height: 18px; cursor: pointer; }
-    .btn-save-bulk { background: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
+    
+    /* Input Tanggal Terpusat */
+    .bulk-date-wrap { display: flex; align-items: center; gap: 6px; background: #f0f7ff; padding: 6px 10px; border-radius: 8px; border: 1px solid #b8daff; }
+    .bulk-date-wrap label { font-size: 12px; font-weight: bold; color: #1a73e8; }
+    .bulk-date-wrap input { font-family: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; outline: none; background: #fff; color:#333; }
+    
+    .btn-save-bulk { background: #28a745; color: white; border: none; padding: 12px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; width: 100%; }
     .btn-save-bulk:disabled { background: #a5d8b2; cursor: not-allowed; }
 
-    /* Result Card */
+    /* Result Card (Tanpa Tanggal) */
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 14px; border-radius: 12px; text-align: left; margin-bottom: 15px; position: relative; }
     .result-card.saved { background: #f0f0f0; border-color: #ccc; opacity: 0.8; }
     
@@ -50,10 +57,6 @@
     .result-card.saved h4 { color: #555; }
     
     .btn-delete { background: none; border: none; font-size: 18px; cursor: pointer; padding: 0; margin: 0; color: #dc3545; }
-    
-    .date-input-group { margin-top: 10px; background: #fff; padding: 8px 12px; border-radius: 8px; border: 1px solid #cce5ff; display: flex; align-items: center; justify-content: space-between; }
-    .date-input-group label { font-size: 12px; font-weight: bold; color: #555; }
-    .date-input-group input { font-family: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
 
     .info-table { background: white; padding: 10px; border-radius: 8px; font-size: 12px; border: 1px solid #cce5ff; }
     .info-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e0e0e0; }
@@ -90,13 +93,19 @@
     <div id="historySection" style="display:none;">
       <div class="history-title">📋 Riwayat Scan (Sesi Ini)</div>
       
-      <!-- Kontrol Massal -->
+      <!-- Kontrol Massal dengan Tanggal Terpusat -->
       <div class="bulk-controls" id="bulkControls">
-        <label class="select-all-wrap">
-          <input type="checkbox" id="checkAll" onchange="toggleSelectAll(this.checked)">
-          Pilih Semua (<span id="selectedCount">0</span>)
-        </label>
-        <button class="btn-save-bulk" id="btnSaveBulk" onclick="saveSelectedItems()" disabled>💾 Simpan Terpilih</button>
+        <div class="bulk-header">
+          <label class="select-all-wrap">
+            <input type="checkbox" id="checkAll" onchange="toggleSelectAll(this.checked)">
+            Pilih Semua (<span id="selectedCount">0</span>)
+          </label>
+          <div class="bulk-date-wrap">
+            <label>📅 Tgl Serah Terima:</label>
+            <input type="date" id="bulkDate">
+          </div>
+        </div>
+        <button class="btn-save-bulk" id="btnSaveBulk" onclick="saveSelectedItems()" disabled>💾 Simpan Terpilih ke Paxel</button>
       </div>
 
       <div id="resultsContainer"></div>
@@ -104,6 +113,14 @@
   </div>
 
   <script>
+    // Inisialisasi Tanggal Hari Ini ke Input Bulk Date
+    document.addEventListener("DOMContentLoaded", () => {
+      const localDate = new Date();
+      const offset = localDate.getTimezoneOffset() * 60000;
+      const today = new Date(localDate.getTime() - offset).toISOString().split('T')[0];
+      document.getElementById('bulkDate').value = today;
+    });
+
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
@@ -225,12 +242,9 @@
           playBeepSound();
           statusEl.innerText = "⚡ Data Ditemukan!";
           
-          const today = new Date().toISOString().split('T')[0];
-          
           scannedHistory.unshift({
             id: Date.now(),
             matchedData: resData.matches[0],
-            tanggalSerahTerima: today,
             saved: false,
             selected: true // Otomatis tercentang saat baru discan
           });
@@ -259,11 +273,6 @@
       const item = scannedHistory.find(x => x.id === id);
       if (item) item.selected = isChecked;
       renderHistory();
-    }
-
-    function updateTanggal(id, newDate) {
-      const item = scannedHistory.find(x => x.id === id);
-      if (item) item.tanggalSerahTerima = newDate;
     }
 
     function deleteItem(id) {
@@ -318,17 +327,11 @@
                 ${!item.saved ? `<input type="checkbox" onchange="toggleItemSelection(${item.id}, this.checked)" ${item.selected ? 'checked' : ''}>` : '✅'}
                 <h4>#${displayNumber}. ${data.shipment_external_id || 'Data Valid'}</h4>
               </div>
-              <button class="btn-delete" onclick="deleteItem(${item.id})" title="Hapus">🗑️</button>
+              ${!item.saved ? `<button class="btn-delete" onclick="deleteItem(${item.id})" title="Hapus">🗑️</button>` : ''}
             </div>
             
             <div class="info-table">${infoRowsHTML}</div>
 
-            <div class="date-input-group">
-              <label>📅 Tgl Serah Terima:</label>
-              <input type="date" value="${item.tanggalSerahTerima}" 
-                onchange="updateTanggal(${item.id}, this.value)" 
-                ${item.saved ? 'disabled' : ''}>
-            </div>
             ${item.saved ? '<p style="color:green; font-weight:bold; margin: 10px 0 0 0; text-align:center; font-size:13px;">Telah Disimpan ke Paxel</p>' : ''}
           </div>
         `;
@@ -342,6 +345,12 @@
       const itemsToSave = scannedHistory.filter(x => !x.saved && x.selected);
       if (itemsToSave.length === 0) return;
 
+      const bulkDateValue = document.getElementById('bulkDate').value;
+      if (!bulkDateValue) {
+        alert("Pilih Tanggal Serah Terima terlebih dahulu!");
+        return;
+      }
+
       const btnSaveBulk = document.getElementById('btnSaveBulk');
       btnSaveBulk.disabled = true;
       btnSaveBulk.innerText = '💾 Menyimpan...';
@@ -350,13 +359,13 @@
       try {
         const payload = itemsToSave.map(item => ({
           selectedData: item.matchedData,
-          tanggalSerahTerima: item.tanggalSerahTerima
+          tanggalSerahTerima: bulkDateValue // Menggunakan 1 tanggal yang sama untuk semua item
         }));
 
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'saveBulk', items: payload }) // Menggunakan action baru
+          body: JSON.stringify({ action: 'saveBulk', items: payload }) 
         });
         
         const responseText = await response.text();
@@ -373,7 +382,7 @@
         alert('❌ Error: ' + e.message);
         statusEl.innerText = "❌ Gagal menyimpan data.";
       } finally {
-        btnSaveBulk.innerText = '💾 Simpan Terpilih';
+        btnSaveBulk.innerText = '💾 Simpan Terpilih ke Paxel';
       }
     }
   </script>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scanner Dokumen</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; text-align: center; background: #f4f6f9; }
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
+    button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #ccc; }
+    #status { margin-top: 10px; font-weight: bold; color: #333; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Scan Dokumen</h2>
+    <input type="text" id="docName" placeholder="Nama Dokumen / Keterangan">
+    <!-- capture="environment" otomatis buka kamera belakang HP -->
+    <input type="file" id="docImage" accept="image/*" capture="environment">
+    <button onclick="sendData()" id="btnSubmit">Kirim ke Spreadsheet</button>
+    <p id="status"></p>
+  </div>
+
+  <script>
+    async function sendData() {
+      const docName = document.getElementById('docName').value;
+      const fileInput = document.getElementById('docImage');
+      const status = document.getElementById('status');
+      const btn = document.getElementById('btnSubmit');
+
+      if (!docName || !fileInput.files[0]) {
+        status.innerText = 'Harap isi nama dan ambil foto!';
+        return;
+      }
+
+      status.innerText = 'Mengunggah ke Spreadsheet... Mohon tunggu.';
+      btn.disabled = true;
+
+      const reader = new FileReader();
+      reader.readAsDataURL(fileInput.files[0]);
+      reader.onload = async () => {
+        try {
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: docName, base64: reader.result })
+          });
+          const resData = await response.json();
+          status.innerText = resData.message;
+          if(resData.success) {
+            document.getElementById('docName').value = '';
+            fileInput.value = '';
+          }
+        } catch (e) {
+          status.innerText = 'Gagal mengunggah data. Cek koneksi Anda.';
+        } finally {
+          btn.disabled = false;
+        }
+      };
+    }
+  </script>
+</body>
+</html>

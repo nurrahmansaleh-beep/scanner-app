@@ -30,18 +30,31 @@
     #debugCanvasImage { width: 100%; max-height: 50px; object-fit: contain; margin-top: 6px; border: 1px solid #ddd; }
     
     /* Section Riwayat */
-    .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; }
+    .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; font-weight:bold; }
     
+    /* Bulk Controls Panel */
+    .bulk-controls { display: flex; justify-content: space-between; align-items: center; background: #fff; border: 1px solid #cce5ff; padding: 10px 12px; border-radius: 10px; margin-bottom: 15px; }
+    .select-all-wrap { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; color: #333; cursor: pointer; }
+    .select-all-wrap input { width: 18px; height: 18px; cursor: pointer; }
+    .btn-save-bulk { background: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
+    .btn-save-bulk:disabled { background: #a5d8b2; cursor: not-allowed; }
+
+    /* Result Card */
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 14px; border-radius: 12px; text-align: left; margin-bottom: 15px; position: relative; }
-    .result-card h4 { margin: 0 0 10px 0; color: #1a73e8; font-size: 15px; }
+    .result-card.saved { background: #f0f0f0; border-color: #ccc; opacity: 0.8; }
+    
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .card-title-wrap { display: flex; align-items: flex-start; gap: 8px; }
+    .card-title-wrap input { width: 18px; height: 18px; margin-top: 2px; cursor: pointer; }
+    .result-card h4 { margin: 0; color: #1a73e8; font-size: 15px; line-height: 1.4; }
+    .result-card.saved h4 { color: #555; }
+    
+    .btn-delete { background: none; border: none; font-size: 18px; cursor: pointer; padding: 0; margin: 0; color: #dc3545; }
     
     .date-input-group { margin-top: 10px; background: #fff; padding: 8px 12px; border-radius: 8px; border: 1px solid #cce5ff; display: flex; align-items: center; justify-content: space-between; }
     .date-input-group label { font-size: 12px; font-weight: bold; color: #555; }
     .date-input-group input { font-family: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
 
-    .btn-select { background: #28a745; color: white; border: none; padding: 10px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; margin-top: 10px; }
-    .btn-select:disabled { background: #6c757d; cursor: not-allowed; }
-    
     .info-table { background: white; padding: 10px; border-radius: 8px; font-size: 12px; border: 1px solid #cce5ff; }
     .info-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e0e0e0; }
     .info-row:last-child { border-bottom: none; }
@@ -76,6 +89,16 @@
     <!-- Wadah Riwayat Hasil Scan -->
     <div id="historySection" style="display:none;">
       <div class="history-title">📋 Riwayat Scan (Sesi Ini)</div>
+      
+      <!-- Kontrol Massal -->
+      <div class="bulk-controls" id="bulkControls">
+        <label class="select-all-wrap">
+          <input type="checkbox" id="checkAll" onchange="toggleSelectAll(this.checked)">
+          Pilih Semua (<span id="selectedCount">0</span>)
+        </label>
+        <button class="btn-save-bulk" id="btnSaveBulk" onclick="saveSelectedItems()" disabled>💾 Simpan Terpilih</button>
+      </div>
+
       <div id="resultsContainer"></div>
     </div>
   </div>
@@ -92,7 +115,7 @@
     const ctx = canvas.getContext('2d');
     
     let currentStream = null;
-    let scannedHistory = []; // Menyimpan semua riwayat hasil scan sesi ini
+    let scannedHistory = []; 
 
     function playBeepSound() {
       try {
@@ -124,7 +147,6 @@
       ];
 
       let stream = null;
-
       for (let constraints of tryConstraints) {
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -140,7 +162,10 @@
 
       currentStream = stream;
       video.srcObject = stream;
-      video.play();
+      
+      await new Promise((resolve) => {
+        video.onloadedmetadata = () => { video.play().then(resolve).catch(resolve); };
+      });
       
       statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak.";
       btnStart.style.display = 'none';
@@ -161,7 +186,6 @@
 
       canvas.width = cropW;
       canvas.height = cropH;
-
       ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       
@@ -175,16 +199,13 @@
 
         let cleanIdText = "";
         const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
-        if (idPattern && idPattern.length > 0) {
-          cleanIdText = idPattern[0];
-        }
+        if (idPattern && idPattern.length > 0) { cleanIdText = idPattern[0]; }
 
         debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
 
         if (!cleanIdText) {
           statusEl.innerText = "❌ ID tidak terbaca. Pastikan foto tidak blur.";
-          btnSnap.disabled = false;
-          return;
+          btnSnap.disabled = false; return;
         }
 
         statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
@@ -198,23 +219,20 @@
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.message || "Gagal memproses data.");
-        }
+        if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal memproses data.");
 
         if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
           statusEl.innerText = "⚡ Data Ditemukan!";
           
-          // Tanggal Hari Ini sebagai Nilai Default (YYYY-MM-DD)
           const today = new Date().toISOString().split('T')[0];
           
-          // Masukkan ke paling atas riwayat
           scannedHistory.unshift({
             id: Date.now(),
             matchedData: resData.matches[0],
             tanggalSerahTerima: today,
-            saved: false
+            saved: false,
+            selected: true // Otomatis tercentang saat baru discan
           });
 
           renderHistory();
@@ -228,9 +246,38 @@
       }
     }
 
+    // --- FITUR MULTI SELECT & DELETE ---
+
+    function toggleSelectAll(isChecked) {
+      scannedHistory.forEach(item => {
+        if (!item.saved) item.selected = isChecked;
+      });
+      renderHistory();
+    }
+
+    function toggleItemSelection(id, isChecked) {
+      const item = scannedHistory.find(x => x.id === id);
+      if (item) item.selected = isChecked;
+      renderHistory();
+    }
+
+    function updateTanggal(id, newDate) {
+      const item = scannedHistory.find(x => x.id === id);
+      if (item) item.tanggalSerahTerima = newDate;
+    }
+
+    function deleteItem(id) {
+      if(confirm("Hapus dokumen ini dari riwayat scan?")) {
+        scannedHistory = scannedHistory.filter(x => x.id !== id);
+        renderHistory();
+      }
+    }
+
+    // --- RENDER UI ---
+
     function renderHistory() {
-      const container = document.getElementById('resultsContainer');
       const historySection = document.getElementById('historySection');
+      const container = document.getElementById('resultsContainer');
       
       if (scannedHistory.length === 0) {
         historySection.style.display = 'none';
@@ -238,31 +285,43 @@
       }
 
       historySection.style.display = 'block';
-      let html = '';
 
+      // Update Panel Bulk Controls
+      const unsavedItems = scannedHistory.filter(x => !x.saved);
+      const selectedCount = unsavedItems.filter(x => x.selected).length;
+      const allSelected = unsavedItems.length > 0 && selectedCount === unsavedItems.length;
+
+      document.getElementById('checkAll').checked = allSelected;
+      document.getElementById('checkAll').disabled = unsavedItems.length === 0;
+      document.getElementById('selectedCount').innerText = selectedCount;
+      document.getElementById('btnSaveBulk').disabled = selectedCount === 0;
+
+      let html = '';
       scannedHistory.forEach((item, index) => {
         const data = item.matchedData;
         const firstSixColumns = Object.entries(data).slice(0, 6);
-        
         let infoRowsHTML = '';
+        
         firstSixColumns.forEach(([headerName, value]) => {
           if (headerName && headerName.trim() !== '') {
-            infoRowsHTML += `
-              <div class="info-row">
-                <div class="info-label">${headerName}</div>
-                <div class="info-value">${value || '-'}</div>
-              </div>
-            `;
+            infoRowsHTML += `<div class="info-row"><div class="info-label">${headerName}</div><div class="info-value">${value || '-'}</div></div>`;
           }
         });
 
+        const cardClass = item.saved ? "result-card saved" : "result-card";
+        const displayNumber = scannedHistory.length - index;
+
         html += `
-          <div class="result-card" id="card-${item.id}">
-            <h4>✅ #${scannedHistory.length - index}. Match ID: ${data.shipment_external_id || 'Data Valid'}</h4>
-            
-            <div class="info-table">
-              ${infoRowsHTML}
+          <div class="${cardClass}" id="card-${item.id}">
+            <div class="card-header">
+              <div class="card-title-wrap">
+                ${!item.saved ? `<input type="checkbox" onchange="toggleItemSelection(${item.id}, this.checked)" ${item.selected ? 'checked' : ''}>` : '✅'}
+                <h4>#${displayNumber}. ${data.shipment_external_id || 'Data Valid'}</h4>
+              </div>
+              <button class="btn-delete" onclick="deleteItem(${item.id})" title="Hapus">🗑️</button>
             </div>
+            
+            <div class="info-table">${infoRowsHTML}</div>
 
             <div class="date-input-group">
               <label>📅 Tgl Serah Terima:</label>
@@ -270,57 +329,51 @@
                 onchange="updateTanggal(${item.id}, this.value)" 
                 ${item.saved ? 'disabled' : ''}>
             </div>
-
-            ${item.saved 
-              ? '<p style="color:green; font-weight:bold; margin: 10px 0 0 0; text-align:center;">🎉 Tersimpan di Paxel</p>'
-              : `<button class="btn-select" id="btn-save-${item.id}" onclick="saveItem(${item.id})">Simpan ke Sheet Paxel</button>`
-            }
+            ${item.saved ? '<p style="color:green; font-weight:bold; margin: 10px 0 0 0; text-align:center; font-size:13px;">Telah Disimpan ke Paxel</p>' : ''}
           </div>
         `;
       });
-
       container.innerHTML = html;
     }
 
-    function updateTanggal(itemId, newDate) {
-      const target = scannedHistory.find(x => x.id === itemId);
-      if (target) {
-        target.tanggalSerahTerima = newDate;
-      }
-    }
+    // --- PROSES SIMPAN MASSAL (BULK SAVE) ---
 
-    async function saveItem(itemId) {
-      const target = scannedHistory.find(x => x.id === itemId);
-      if (!target) return;
+    async function saveSelectedItems() {
+      const itemsToSave = scannedHistory.filter(x => !x.saved && x.selected);
+      if (itemsToSave.length === 0) return;
 
-      const btnSave = document.getElementById(`btn-save-${itemId}`);
-      btnSave.disabled = true;
-      btnSave.innerText = '💾 Menyimpan...';
+      const btnSaveBulk = document.getElementById('btnSaveBulk');
+      btnSaveBulk.disabled = true;
+      btnSaveBulk.innerText = '💾 Menyimpan...';
+      statusEl.innerText = `💾 Menyimpan ${itemsToSave.length} data ke Paxel...`;
 
       try {
+        const payload = itemsToSave.map(item => ({
+          selectedData: item.matchedData,
+          tanggalSerahTerima: item.tanggalSerahTerima
+        }));
+
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            action: 'save', 
-            selectedData: target.matchedData,
-            tanggalSerahTerima: target.tanggalSerahTerima
-          })
+          body: JSON.stringify({ action: 'saveBulk', items: payload }) // Menggunakan action baru
         });
         
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.message || "Gagal menyimpan.");
-        }
+        if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal menyimpan.");
 
-        target.saved = true;
+        // Tandai berhasil disimpan
+        itemsToSave.forEach(item => { item.saved = true; item.selected = false; });
+        statusEl.innerText = `🎉 Berhasil menyimpan ${itemsToSave.length} data ke Paxel!`;
         renderHistory();
+
       } catch (e) {
         alert('❌ Error: ' + e.message);
-        btnSave.disabled = false;
-        btnSave.innerText = 'Simpan ke Sheet Paxel';
+        statusEl.innerText = "❌ Gagal menyimpan data.";
+      } finally {
+        btnSaveBulk.innerText = '💾 Simpan Terpilih';
       }
     }
   </script>

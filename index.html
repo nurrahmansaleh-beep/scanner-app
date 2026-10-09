@@ -40,7 +40,8 @@
     <p style="font-size: 13px; color: #666;">Pas-kan ID di dalam kotak oranye. Pastikan <b>tulisan terbaca jelas</b> (tidak blur).</p>
 
     <div class="camera-wrapper">
-      <video id="videoElement" autoplay playsinline></video>
+      <!-- Muted wajib ada agar browser mengizinkan tayangan live -->
+      <video id="videoElement" autoplay playsinline muted></video>
       <div class="scan-box" id="scanBox"></div>
     </div>
     
@@ -73,83 +74,3 @@
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime); 
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.15); 
-      } catch (e) {}
-    }
-
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: "continuous" }] } 
-        });
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
-        };
-      } catch (err) {
-        statusEl.innerText = "❌ Gagal membuka kamera.";
-        btnSnap.disabled = true;
-      }
-    }
-
-    async function takeSnapAndScan() {
-      btnSnap.disabled = true;
-      statusEl.innerText = "⚙️ Memotong gambar & membaca teks...";
-      document.getElementById('resultsContainer').innerHTML = '';
-      ocrDebugEl.style.display = 'none';
-
-      const vW = video.videoWidth;
-      const vH = video.videoHeight;
-      const cropW = vW * 0.75; 
-      const cropH = vH * 0.10;
-      const cropX = (vW - cropW) / 2;
-      const cropY = (vH - cropH) / 2;
-
-      canvas.width = cropW;
-      canvas.height = cropH;
-
-      ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
-      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      
-      const imageDataURL = canvas.toDataURL('image/jpeg', 1.0);
-      debugCanvasImage.src = imageDataURL;
-      ocrDebugEl.style.display = 'block';
-
-      try {
-        const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
-        let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
-
-        let cleanIdText = "";
-        const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
-        
-        if (idPattern && idPattern.length > 0) {
-          cleanIdText = idPattern[0];
-        }
-
-        debugTextEl.innerText = cleanIdText || "[Tidak ada ID Valid]";
-
-        if (!cleanIdText) {
-          statusEl.innerText = "❌ ID tidak terbaca. Pastikan foto tidak blur.";
-          btnSnap.disabled = false;
-          return;
-        }
-
-        statusEl.innerText = "🔍 Mencari ID di Spreadsheet...";
-
-        const response = await fetch('/api/process', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
-        });
-        
-        const resData = await response.json();
-        
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.message || "Error tidak

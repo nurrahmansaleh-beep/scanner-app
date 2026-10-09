@@ -4,71 +4,72 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Scanner DO Balik</title>
-  <!-- Library pembaca teks (Tesseract) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
     body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
-    .container { max-width: 480px; margin: 0 auto; background: white; padding: 25px 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+    .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
     h3 { margin-top: 0; color: #1a73e8; }
     
-    /* Area upload foto */
-    .btn-camera-label {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background: #e8f0fe; border: 2px dashed #1a73e8; border-radius: 12px;
-      padding: 30px 15px; margin: 15px 0; cursor: pointer; color: #1a73e8; font-weight: bold;
+    /* Viewfinder Kamera Web */
+    .camera-wrapper { position: relative; width: 100%; height: 260px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
+    #videoElement { width: 100%; height: 100%; object-fit: cover; }
+    
+    /* Kotak Target */
+    .scan-box {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 85%; height: 60px; border: 3px solid #ff9800; border-radius: 8px;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.45); pointer-events: none;
     }
-    .btn-camera-label:active { background: #d2e3fc; }
-    .btn-camera-label span { font-size: 14px; color: #555; margin-top: 5px; font-weight: normal; }
     
-    #fileInput { display: none; }
+    /* Tombol Potret di Dalam Web */
+    .btn-snap {
+      background: #1a73e8; color: white; border: none; padding: 14px 20px;
+      border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%;
+      cursor: pointer; box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
+    }
+    .btn-snap:active { background: #1557b0; }
+    .btn-snap:disabled { background: #ccc; box-shadow: none; cursor: not-allowed; }
     
-    /* Preview Gambar */
-    #previewImage { width: 100%; border-radius: 12px; margin-top: 15px; display: none; max-height: 200px; object-fit: contain; border: 1px solid #ddd;}
+    #status { font-weight: bold; margin: 15px 0 5px 0; color: #333; font-size: 14px; }
+    #ocrDebug { font-size: 12px; color: #555; background: #f8f9fa; padding: 8px; border-radius: 6px; border: 1px dashed #ccc; margin-top: 5px; word-break: break-all; }
     
-    #status { font-weight: bold; margin: 15px 0; color: #333; font-size: 14px; }
-    #ocrDebug { font-size: 12px; color: #666; background: #f8f9fa; padding: 8px; border-radius: 6px; border: 1px dashed #ccc; margin-top: 5px; word-break: break-all; display: none;}
-    
-    /* Card Hasil Pencarian */
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 15px; border-radius: 12px; text-align: left; margin-top: 15px; }
     .result-card h4 { margin: 0 0 8px 0; color: #1a73e8; }
     .btn-select { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 10px; }
     .btn-select:active { background: #1e7e34; }
-    
-    button:disabled { background: #ccc !important; cursor: not-allowed; }
   </style>
 </head>
 <body>
 
   <div class="container">
     <h3>Scanner DO Balik</h3>
-    <p style="font-size: 13px; color: #666;">Ambil foto dokumen/DO yang berisi kode ID unik Anda.</p>
+    <p style="font-size: 13px; color: #666;">Pas-kan kode ID di dalam <b>KOTAK ORANYE</b>, lalu tekan tombol potret.</p>
 
-    <!-- Label pemicu kamera asli bawaan HP -->
-    <label for="fileInput" class="btn-camera-label" id="cameraLabel">
-      <span style="font-size: 40px;">📸</span>
-      AMBIL FOTO / SCAN DOKUMEN
-      <span>Klik untuk membuka kamera HP</span>
-    </label>
+    <!-- Kamera Langsung di Tampilan Web -->
+    <div class="camera-wrapper">
+      <video id="videoElement" autoplay playsinline></video>
+      <div class="scan-box" id="scanBox"></div>
+    </div>
     
-    <!-- Input Kamera tersembunyi -->
-    <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="onFileSelected()">
-    
-    <!-- Pratinjau Foto -->
-    <img id="previewImage" alt="Preview Foto">
+    <!-- Tombol Potret -->
+    <button class="btn-snap" id="btnSnap" onclick="takeSnapAndScan()">📸 POTRET & SCAN</button>
 
-    <div id="status">Siap digunakan. Silakan ambil foto.</div>
-    <div id="ocrDebug"></div>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+
+    <div id="status">Membuka kamera...</div>
+    <div id="ocrDebug" style="display:none;"></div>
     
     <div id="resultsContainer"></div>
   </div>
 
   <script>
-    const fileInput = document.getElementById('fileInput');
-    const previewImage = document.getElementById('previewImage');
+    const video = document.getElementById('videoElement');
+    const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
     const ocrDebugEl = document.getElementById('ocrDebug');
-    const resultsContainer = document.getElementById('resultsContainer');
-    const cameraLabel = document.getElementById('cameraLabel');
+    const scanBox = document.getElementById('scanBox');
+    const btnSnap = document.getElementById('btnSnap');
+    const ctx = canvas.getContext('2d');
 
     function playBeepSound() {
       try {
@@ -85,40 +86,65 @@
       } catch (e) {}
     }
 
-    async function onFileSelected() {
-      const file = fileInput.files[0];
-      if (!file) return;
+    // Buka Kamera Langsung di Web
+    async function startCamera() {
+      try {
+        statusEl.innerText = "🎥 Membuka kamera...";
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          statusEl.innerText = "🟢 Kamera siap. Posisikan ID lalu tekan tombol.";
+        };
+      } catch (err) {
+        statusEl.innerText = "❌ Gagal membuka kamera. Pastikan izin kamera di browser aktif.";
+        btnSnap.disabled = true;
+      }
+    }
 
-      // 1. Tampilkan preview gambar
-      previewImage.src = URL.createObjectURL(file);
-      previewImage.style.display = 'block';
-      
-      resultsContainer.innerHTML = '';
-      statusEl.innerText = "⚙️ Membaca teks di foto...";
+    async function takeSnapAndScan() {
+      btnSnap.disabled = true;
+      statusEl.innerText = "⚙️ Memotong gambar & membaca teks...";
+      document.getElementById('resultsContainer').innerHTML = '';
       ocrDebugEl.style.display = 'none';
-      
-      // Matikan tombol sementara proses membaca
-      cameraLabel.style.pointerEvents = 'none';
-      cameraLabel.style.opacity = '0.6';
+
+      // 1. Hitung Koordinat Kotak Oranye Secara Presisi
+      const videoRect = video.getBoundingClientRect();
+      const boxRect = scanBox.getBoundingClientRect();
+
+      const scaleX = video.videoWidth / videoRect.width;
+      const scaleY = video.videoHeight / videoRect.height;
+
+      const cropX = (boxRect.left - videoRect.left) * scaleX;
+      const cropY = (boxRect.top - videoRect.top) * scaleY;
+      const cropW = boxRect.width * scaleX;
+      const cropH = boxRect.height * scaleY;
+
+      canvas.width = cropW;
+      canvas.height = cropH;
+
+      // 2. Ambil Gambar Hanya di Dalam Kotak Oranye
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      const imageDataURL = canvas.toDataURL('image/jpeg', 0.95);
 
       try {
-        // 2. OCR Menggunakan library Tesseract
-        const { data: { text } } = await Tesseract.recognize(file, 'eng');
+        // 3. OCR Tesseract Hanya Pada Gambar yang Dipotong
+        const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
         const cleanReadText = text ? text.trim() : '';
 
-        // Tampilkan teks debug
-        ocrDebugEl.innerText = "Hasil Baca Kamera:\n" + (cleanReadText || "[Tidak ada teks terbaca]");
+        ocrDebugEl.innerText = "Teks Terbaca di Kotak: " + (cleanReadText || "[Kosong]");
         ocrDebugEl.style.display = 'block';
 
         if (!cleanReadText || cleanReadText.length < 3) {
-          statusEl.innerText = "❌ Tidak dapat membaca tulisan. Ambil foto yang lebih dekat dan terang.";
-          resetButtons();
+          statusEl.innerText = "❌ Teks di kotak tidak terbaca. Pastikan ID pas di dalam kotak oranye.";
+          btnSnap.disabled = false;
           return;
         }
 
-        statusEl.innerText = "🔍 Mencari kecocokan di Master Data...";
+        statusEl.innerText = "🔍 Mencari ID di Master Data...";
 
-        // 3. Kirim ke API backend untuk dicocokkan dengan Master Data
+        // 4. Kirim ke Server Backend
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -132,27 +158,20 @@
           statusEl.innerText = "⚡ Data Ditemukan!";
           renderResult(resData.matches[0]);
         } else {
-          statusEl.innerText = "❌ ID Tidak Ditemukan di Spreadsheet. Coba foto lebih dekat.";
-          resetButtons();
+          statusEl.innerText = "❌ ID tidak cocok dengan Master Data.";
         }
-
       } catch (e) {
-        statusEl.innerText = "❌ Terjadi error saat membaca foto.";
-        resetButtons();
+        statusEl.innerText = "❌ Gagal memproses gambar.";
+      } finally {
+        btnSnap.disabled = false;
       }
     }
 
-    function resetButtons() {
-      cameraLabel.style.pointerEvents = 'auto';
-      cameraLabel.style.opacity = '1';
-    }
-
     function renderResult(data) {
-      resetButtons();
-      resultsContainer.innerHTML = `
+      const container = document.getElementById('resultsContainer');
+      container.innerHTML = `
         <div class="result-card">
-          <h4>✅ Ditemukan: ${data.shipment_external_id}</h4>
-          <p style="font-size:12px; color:#555;">Klik tombol di bawah untuk menyimpan ke worksheet Paxel.</p>
+          <h4>✅ Ditemukan ID: ${data.shipment_external_id}</h4>
           <button class="btn-select" id="btnSave" onclick='saveToPaxel(${JSON.stringify(data)})'>Simpan ke Sheet Paxel</button>
         </div>
       `;
@@ -172,23 +191,19 @@
 
         const resData = await response.json();
         if (resData.success) {
-          resultsContainer.innerHTML = '<p style="color:green; font-weight:bold; font-size:16px;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
-          statusEl.innerText = "Siap untuk scan berikutnya.";
-          
-          // Sembunyikan preview
-          setTimeout(() => {
-            previewImage.style.display = 'none';
-            ocrDebugEl.style.display = 'none';
-          }, 3000);
+          document.getElementById('resultsContainer').innerHTML = '<p style="color:green; font-weight:bold; font-size:16px;">🎉 Berhasil Disimpan ke Sheet Paxel!</p>';
+          statusEl.innerText = "Siap memindai kode berikutnya.";
         } else {
-          statusEl.innerText = '❌ Gagal menyimpan ke Spreadsheet.';
+          statusEl.innerText = '❌ Gagal menyimpan.';
           btnSave.disabled = false;
         }
       } catch (e) {
-        statusEl.innerText = '❌ Gagal menghubungi server.';
+        statusEl.innerText = '❌ Gangguan koneksi.';
         btnSave.disabled = false;
       }
     }
+
+    window.onload = startCamera;
   </script>
 </body>
 </html>

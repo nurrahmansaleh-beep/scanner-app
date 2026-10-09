@@ -41,7 +41,7 @@
     
     <canvas id="canvasElement" style="display:none;"></canvas>
 
-    <div id="status">Mempersiapkan kamera...</div>
+    <div id="status">Membuka kamera...</div>
     <div id="ocrDebug">Teks Terbaca: -</div>
     
     <div id="resultsContainer"></div>
@@ -58,7 +58,7 @@
     
     let isProcessing = false;
     let scanInterval;
-    let worker;
+    let worker = null;
 
     function playBeepSound() {
       try {
@@ -75,36 +75,48 @@
       } catch (e) {}
     }
 
+    // 1. JALANKAN KAMERA TERLEBIH DAHULU
     async function startCamera() {
       try {
-        // Inisialisasi Tesseract Worker dengan Whitelist
+        statusEl.innerText = "🎥 Membuka kamera...";
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => { 
+          // Setelah kamera terbuka, muat mesin OCR
+          initOCR();
+        };
+      } catch (err) {
+        statusEl.innerText = "❌ Gagal membuka kamera. Pastikan izin kamera aktif!";
+      }
+    }
+
+    // 2. MUAT MESIN OCR SECARA TERPISAH
+    async function initOCR() {
+      try {
         statusEl.innerText = "⚙️ Memuat sistem pembaca teks...";
         worker = await Tesseract.createWorker('eng');
         await worker.setParameters({
           tesseract_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-',
         });
-
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
-        });
-        video.srcObject = stream;
-        video.onloadedmetadata = () => { startAutoScan(); };
+        startAutoScan();
       } catch (err) {
-        statusEl.innerText = "❌ Gagal mengaktifkan kamera/sistem.";
+        statusEl.innerText = "⚠️ Gagal memuat pembaca teks. Cek koneksi internet!";
       }
     }
 
     function startAutoScan() {
-      statusEl.innerText = "🟢 Arahkan kotak ke kode ID...";
+      statusEl.innerText = "🟢 Posisikan kode di kotak oranye...";
       scanBox.style.borderColor = "#ff9800";
       isProcessing = false;
       document.getElementById('btnRestart').style.display = 'none';
       
       scanInterval = setInterval(async () => {
-        if (isProcessing) return;
+        if (isProcessing || !worker) return;
         isProcessing = true;
         
-        // HITUNG KOORDINAT AKURAT SESUAI UKURAN LAYAR HP
+        // Hitung area potong kotak oranye
         const videoRect = video.getBoundingClientRect();
         const boxRect = scanBox.getBoundingClientRect();
 
@@ -119,7 +131,6 @@
         canvas.width = cropW;
         canvas.height = cropH;
 
-        // Potong tepat gambar di dalam kotak oranye
         ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
         const imageDataURL = canvas.toDataURL('image/jpeg', 0.85);
 
@@ -132,7 +143,7 @@
           ocrDebugEl.innerText = "Teks Terbaca: " + (cleanReadText || "-");
 
           if (!cleanReadText || cleanReadText.length < 3) {
-            statusEl.innerText = "🟢 Posisikan teks di dalam kotak...";
+            statusEl.innerText = "🟢 Posisikan kode di kotak oranye...";
             isProcessing = false;
             return;
           }

@@ -1,5 +1,14 @@
 import { google } from 'googleapis';
 
+// Fungsi Normalisasi Teks untuk Pencocokan Fleksibel
+function cleanText(str) {
+  if (!str) return '';
+  return str.toString()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '') // Hapus strip (-), spasi, titik, koma
+    .replace(/O/g, '0');        // Ubah semua huruf 'O' menjadi angka '0'
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method Not Allowed' });
 
@@ -15,7 +24,7 @@ export default async function handler(req, res) {
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
     // ==========================================
-    // AKSI 1: MENCARI TEKS DARI HASIL OCR LIVE
+    // AKSI 1: MENCARI TEKS DENGAN NORMALISASI
     // ==========================================
     if (action === 'liveTextScan') {
       const response = await sheets.spreadsheets.values.get({
@@ -34,18 +43,22 @@ export default async function handler(req, res) {
       }
 
       const matches = [];
-      const textToSearch = ocrText.replace(/\s+/g, '').toUpperCase(); // Hapus semua spasi di hasil scan, ubah huruf besar
+      const cleanedOCR = cleanText(ocrText); // Hasil bacaan kamera yang sudah dibersihkan
 
       for (let i = 1; i < rows.length; i++) {
         const rowData = rows[i];
-        const shipmentId = rowData[idIndex];
+        const rawShipmentId = rowData[idIndex];
         
-        // Hapus spasi pada ID master data untuk pencocokan yang lebih akurat
-        if (shipmentId && textToSearch.includes(shipmentId.replace(/\s+/g, '').toUpperCase())) {
-            let rowObj = {};
-            headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
-            matches.push(rowObj);
-            break; // Berhenti jika 1 id sudah ditemukan (agar lebih cepat)
+        if (rawShipmentId) {
+          const cleanedMasterId = cleanText(rawShipmentId);
+          
+          // Cocokkan ID yang sudah dibersihkan dari simbol & beda huruf/angka
+          if (cleanedMasterId.length >= 4 && cleanedOCR.includes(cleanedMasterId)) {
+              let rowObj = {};
+              headers.forEach((h, idx) => { rowObj[h] = rowData[idx] || ''; });
+              matches.push(rowObj);
+              break; 
+          }
         }
       }
       

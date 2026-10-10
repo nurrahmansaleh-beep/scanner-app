@@ -77,14 +77,15 @@ module.exports = async function handler(req, res) {
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       
       const values = items.map(item => {
-        const rowValues = Object.values(item.selectedData); // Isi original dr Master Data
-        rowValues.push(item.tanggalSerahTerima || '-');     // Kolom Tanggal (Baru)
-        rowValues.push(item.vendor || '-');                 // Kolom Vendor (Baru)
-        rowValues.push(timestamp);                          // Kolom Waktu Scan (Baru)
+        const rowValues = Object.values(item.selectedData);
+        rowValues.push(item.tanggalSerahTerima || '-');     
+        rowValues.push(item.vendor || '-');                 
+        rowValues.push(timestamp);                          
         return rowValues;
       });
 
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:Z:append?valueInputOption=USER_ENTERED`;
+      // PERUBAHAN: Sheet Tujuan diganti menjadi "Serah Terima Vendor"
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Serah%20Terima%20Vendor!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,
         method: 'POST',

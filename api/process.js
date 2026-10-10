@@ -2,13 +2,8 @@ const { JWT } = require('google-auth-library');
 const url = require('url');
 const XLSX = require('xlsx'); 
 
-// Variabel Cache Global (Tersimpan di RAM Vercel)
-let cachedMasterData = null;
-let lastCacheTime = 0;
-const CACHE_DURATION_MS = 5 * 60 * 1000; // Cache bertahan 5 Menit
-
 function cleanText(str) {
-  if (!str) return '';
+  if (str === undefined || str === null || str === 'undefined') return '';
   return str.toString().toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/O/g, '0');
 }
 
@@ -16,12 +11,17 @@ module.exports = async function handler(req, res) {
   const queryObject = url.parse(req.url, true).query;
   const action = req.method === 'POST' ? req.body.action : queryObject.action;
 
-  // --- JALUR UNDUH EXCEL ---
+  // =====================================================================
+  // JALUR UNDUH EXCEL (.XLSX) MURNI
+  // =====================================================================
   if (action === 'downloadXLSX') {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(405).send("Method Tidak Diizinkan");
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return res.status(405).send("Method Tidak Diizinkan");
+    }
+
     try {
       const { ids, vendor, date } = queryObject;
-      if (!ids) return res.status(400).send("Tidak ada data ID");
+      if (!ids || ids === 'undefined') return res.status(400).send("Tidak ada data ID");
       if (!process.env.GOOGLE_SERVICE_ACCOUNT) return res.status(500).send("Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang.");
 
       let creds = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -29,26 +29,37 @@ module.exports = async function handler(req, res) {
       creds.private_key = creds.private_key.replace(/\\n/g, '\n');
 
       const client = new JWT({
-        email: creds.client_email, key: creds.private_key, scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        email: creds.client_email,
+        key: creds.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
       });
+
       const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
       const sheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
-      
       const googleRes = await client.request({ url: sheetUrl });
       const rows = googleRes.data.values;
+      
       if (!rows || rows.length === 0) return res.status(404).send('Data kosong');
       
       const headers = rows[0];
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       const idArray = ids.split(',');
+
       const exportData = [];
       let counter = 1;
       
       for (let i = 1; i < rows.length; i++) {
         const rawId = rows[i][idIndex];
         if (rawId && idArray.includes(rawId.toString().trim())) {
-          let rowObj = { "No": counter, "ID Pengiriman": rawId.toString().trim(), "Tanggal Serah Terima": date, "Vendor": vendor };
-          headers.forEach((h, idx) => { if (idx !== idIndex) rowObj[h] = rows[i][idx] || ''; });
+          let rowObj = {
+            "No": counter,
+            "ID Pengiriman": rawId.toString().trim(),
+            "Tanggal Serah Terima": date || '-',
+            "Vendor": vendor || '-'
+          };
+          headers.forEach((h, idx) => {
+            if (idx !== idIndex) rowObj[h] = rows[i][idx] || '';
+          });
           exportData.push(rowObj);
           counter++;
         }
@@ -57,6 +68,7 @@ module.exports = async function handler(req, res) {
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
+      
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
       const fileName = `Bukti_Serah_Terima_${date}.xlsx`;
 
@@ -66,12 +78,15 @@ module.exports = async function handler(req, res) {
 
       if (req.method === 'HEAD') return res.status(200).end();
       return res.status(200).send(buffer);
+
     } catch (error) {
       return res.status(500).send("Error pembuatan file: " + error.message);
     }
   }
 
-  // --- LOGIKA SCAN & SIMPAN ---
+  // =====================================================================
+  // LOGIKA SCAN & PENYIMPANAN DATA
+  // =====================================================================
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
@@ -80,46 +95,45 @@ module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { ocrText, items } = req.body;
+    
     let creds = process.env.GOOGLE_SERVICE_ACCOUNT;
     if (typeof creds === 'string') creds = JSON.parse(creds);
     creds.private_key = creds.private_key.replace(/\\n/g, '\n');
 
-    const client = new JWT({ email: creds.client_email, key: creds.private_key, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+    const client = new JWT({
+      email: creds.client_email,
+      key: creds.private_key,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
-    // OPTIMASI: PENCARIAN DENGAN CACHE RAM (SUPER CEPAT)
     if (action === 'liveTextScan') {
-      let rows = [];
-      const now = Date.now();
+      // Mengambil langsung dari Google Sheet (Anti-Undefined)
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
+      const googleRes = await client.request({ url });
       
-      // Jika Cache kosong atau sudah kadaluarsa (lebih dari 5 menit), Unduh dari Google
-      if (!cachedMasterData || (now - lastCacheTime > CACHE_DURATION_MS)) {
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
-        const googleRes = await client.request({ url });
-        cachedMasterData = googleRes.data.values;
-        lastCacheTime = now;
-      }
-      
-      // Gunakan data dari RAM
-      rows = cachedMasterData;
-
+      const rows = googleRes.data.values;
       if (!rows || rows.length === 0) return res.status(404).json({ success: false, message: 'Sheet Master Data Kosong' });
 
       const headers = rows[0];
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
+      
       if (idIndex === -1) return res.status(400).json({ success: false, message: 'Header shipment_external_id tidak ditemukan.' });
 
       const matches = [];
       const cleanedOCR = cleanText(ocrText);
 
-      // Pencarian kilat
       for (let i = 1; i < rows.length; i++) {
         const rawShipmentId = rows[i][idIndex];
         if (rawShipmentId) {
           const cleanedMasterId = cleanText(rawShipmentId);
           if (cleanedMasterId.length >= 4 && (cleanedOCR.includes(cleanedMasterId) || cleanedMasterId.includes(cleanedOCR))) {
             let rowObj = {};
-            headers.forEach((h, idx) => { rowObj[h] = rows[i][idx] || ''; });
+            headers.forEach((h, idx) => { 
+              let val = rows[i][idx];
+              rowObj[h] = (val === undefined || val === null) ? '' : val; 
+            });
             matches.push(rowObj);
             break; 
           }

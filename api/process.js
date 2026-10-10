@@ -1,5 +1,6 @@
 const { JWT } = require('google-auth-library');
 const url = require('url');
+const XLSX = require('xlsx'); // Mesin Excel di sisi Server
 
 function cleanText(str) {
   if (!str) return '';
@@ -10,7 +11,10 @@ module.exports = async function handler(req, res) {
   const queryObject = url.parse(req.url, true).query;
   const action = req.method === 'POST' ? req.body.action : queryObject.action;
 
-  if (req.method === 'GET' && action === 'downloadCSV') {
+  // =====================================================================
+  // JALUR UNDUH EXCEL (.XLSX) MURNI UNTUK APP GEYSER
+  // =====================================================================
+  if (req.method === 'GET' && action === 'downloadXLSX') {
     try {
       const { ids, vendor, date } = queryObject;
       if (!ids) return res.status(400).send("Tidak ada data ID");
@@ -40,37 +44,55 @@ module.exports = async function handler(req, res) {
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       const idArray = ids.split(',');
 
-      let csvContent = '"No","ID Pengiriman","Tanggal Serah Terima","Vendor"';
-      headers.forEach((h, i) => {
-        if (i !== idIndex) csvContent += `,"${h || ''}"`;
-      });
-      csvContent += "\n";
-
+      // 1. Susun Data untuk Excel
+      const exportData = [];
       let counter = 1;
+      
       for (let i = 1; i < rows.length; i++) {
         const rawId = rows[i][idIndex];
         if (rawId && idArray.includes(rawId.toString().trim())) {
-          let rowString = `"${counter}","${rawId}","${date}","${vendor}"`;
+          let rowObj = {
+            "No": counter,
+            "ID Pengiriman": rawId.toString().trim(),
+            "Tanggal Serah Terima": date,
+            "Vendor": vendor
+          };
+          
           headers.forEach((h, idx) => {
             if (idx !== idIndex) {
-              let val = rows[i][idx] || '';
-              val = val.toString().replace(/"/g, '""');
-              rowString += `,"${val}"`;
+              rowObj[h] = rows[i][idx] || '';
             }
           });
-          csvContent += rowString + "\n";
+          exportData.push(rowObj);
           counter++;
         }
       }
 
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="Bukti_Serah_Terima_${date}.csv"`);
-      return res.status(200).send('\uFEFF' + csvContent);
+      // 2. Buat File .xlsx murni di Server
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
+      
+      // Convert ke Buffer Array
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      // 3. Kirim ke HP dengan Header Ketat (Mencegah Layar Blank di AppGeyser)
+      const fileName = `Bukti_Serah_Terima_${date}.xlsx`;
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Length', buffer.length); // INI YANG MEMPERBAIKI TOMBOL "SAVE FILE"
+      
+      return res.status(200).send(buffer);
+
     } catch (error) {
       return res.status(500).send("Error pembuatan file: " + error.message);
     }
   }
 
+  // =====================================================================
+  // LOGIKA PEMINDAIAN DAN PENYIMPANAN DATA (TIDAK BERUBAH)
+  // =====================================================================
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });

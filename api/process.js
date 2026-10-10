@@ -10,7 +10,6 @@ module.exports = async function handler(req, res) {
   const queryObject = url.parse(req.url, true).query;
   const action = req.method === 'POST' ? req.body.action : queryObject.action;
 
-  // JALUR UNDUH CSV LANGSUNG
   if (req.method === 'GET' && action === 'downloadCSV') {
     try {
       const { ids, vendor, date } = queryObject;

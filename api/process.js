@@ -9,14 +9,32 @@ function cleanText(str) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Content-Type', 'application/json');
-
+  // Hanya izinkan method POST
   if (req.method !== 'POST') {
+    res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }
 
   try {
-    const { action, ocrText, items } = req.body;
+    const { action } = req.body;
+
+    // FITUR BARU: Jembatan Download Resmi untuk AppGeyser
+    if (action === 'downloadExcel') {
+      const { base64Data, fileName } = req.body;
+      if (!base64Data) return res.status(400).send("Tidak ada data");
+      
+      const buffer = Buffer.from(base64Data, 'base64');
+      
+      // Kirim sebagai stream file (AppGeyser sangat menyukai metode ini)
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'Bukti_Scan.xlsx'}"`);
+      return res.status(200).send(buffer);
+    }
+
+    // --- BATAS BAWAH INI ADALAH LOGIKA GOOGLE SHEETS (SEPERTI BIASA) ---
+    res.setHeader('Content-Type', 'application/json');
+
+    const { ocrText, items } = req.body;
 
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
       return res.status(500).json({ success: false, message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' });
@@ -84,7 +102,6 @@ module.exports = async function handler(req, res) {
         return rowValues;
       });
 
-      // PERUBAHAN: Sheet Tujuan diganti menjadi "Serah Terima Vendor"
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Serah%20Terima%20Vendor!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,
@@ -96,6 +113,7 @@ module.exports = async function handler(req, res) {
     }
 
   } catch (error) {
+    res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({ success: false, message: 'Gagal Google API: ' + (error.message || error.toString()) });
   }
 };

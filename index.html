@@ -342,6 +342,7 @@
       }
     }
 
+    // --- SOLUSI KLIK DOWNLOAD MURNI (ANTI-MACET APP GEYSER) ---
     function exportToExcel() {
       const savedItems = scannedHistory.filter(x => x.saved);
       if (savedItems.length === 0) {
@@ -353,9 +354,17 @@
       const vendor = savedItems[0].vendor;
       const ids = savedItems.map(x => x.matchedData.shipment_external_id).join(',');
 
-      const downloadUrl = `/api/process?action=downloadCSV&date=${encodeURIComponent(date)}&vendor=${encodeURIComponent(vendor)}&ids=${encodeURIComponent(ids)}`;
+      // Panggil endpoint API untuk generate file XLSX murni dari Server
+      const downloadUrl = `/api/process?action=downloadXLSX&date=${encodeURIComponent(date)}&vendor=${encodeURIComponent(vendor)}&ids=${encodeURIComponent(ids)}`;
       
-      window.location.href = downloadUrl;
+      // Menggunakan teknik klik Anchor Tag meniru klik jari pengguna
+      // Ini akan membuat AppGeyser yakin bahwa ini adalah download file biasa
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `Bukti_Serah_Terima_${date}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   </script>
 </body>

@@ -71,11 +71,11 @@
       <div class="scan-box" id="scanBox"></div>
     </div>
     
-    <button class="btn-main" id="btnStart" onclick="startCamera()" disabled>⏳ MENYIAPKAN MESIN SCANNER...</button>
+    <button class="btn-main" id="btnStart" onclick="startCamera()">📷 BUKA / AKTIFKAN KAMERA</button>
     <button class="btn-main" id="btnSnap" onclick="takeSnapAndScan()" style="display:none; background:#28a745;">📸 POTRET & SCAN</button>
 
     <canvas id="canvasElement" style="display:none;"></canvas>
-    <div id="status">Harap tunggu, mesin OCR sedang dipanaskan...</div>
+    <div id="status">Tekan tombol biru untuk mengaktifkan kamera.</div>
     
     <div id="ocrDebug">
       <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:15px;">-</span><br>
@@ -114,6 +114,12 @@
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
   <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const localDate = new Date();
+      const offset = localDate.getTimezoneOffset() * 60000;
+      document.getElementById('bulkDate').value = new Date(localDate.getTime() - offset).toISOString().split('T')[0];
+    });
+
     const video = document.getElementById('videoElement');
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
@@ -126,22 +132,6 @@
     
     let currentStream = null;
     let scannedHistory = []; 
-    let tesseractWorker = null; 
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      const localDate = new Date();
-      const offset = localDate.getTimezoneOffset() * 60000;
-      document.getElementById('bulkDate').value = new Date(localDate.getTime() - offset).toISOString().split('T')[0];
-
-      try {
-        tesseractWorker = await Tesseract.createWorker('eng');
-        btnStart.innerText = '📷 BUKA / AKTIFKAN KAMERA';
-        btnStart.disabled = false;
-        statusEl.innerText = "✅ Mesin Scanner Siap! Tekan tombol Buka Kamera.";
-      } catch (err) {
-        statusEl.innerText = "❌ Gagal memuat mesin scanner. Silakan refresh.";
-      }
-    });
 
     function playBeepSound() {
       try {
@@ -177,10 +167,13 @@
     }
 
     async function takeSnapAndScan() {
-      if (!tesseractWorker) { alert("Mesin OCR belum siap."); return; }
+      if (typeof Tesseract === 'undefined') { 
+        alert("Sistem OCR sedang memuat, silakan tunggu sebentar."); 
+        return; 
+      }
       
       btnSnap.disabled = true;
-      statusEl.innerText = "⚙️ Membaca teks... (Super Cepat)";
+      statusEl.innerText = "⚙️ Membaca teks...";
       ocrDebugEl.style.display = 'none';
 
       const vW = video.videoWidth || 640;
@@ -199,7 +192,7 @@
       ocrDebugEl.style.display = 'block';
 
       try {
-        const { data: { text } } = await tesseractWorker.recognize(imageDataURL);
+        const { data: { text } } = await Tesseract.recognize(imageDataURL, 'eng');
         let rawText = text ? text.replace(/\n/g, ' ').trim() : '';
 
         let cleanIdText = "";
@@ -207,9 +200,13 @@
         if (idPattern && idPattern.length > 0) { cleanIdText = idPattern[0]; }
 
         debugTextEl.innerText = cleanIdText || "[Tidak Valid]";
-        if (!cleanIdText) { statusEl.innerText = "❌ ID tidak terbaca."; btnSnap.disabled = false; return; }
+        if (!cleanIdText) { 
+          statusEl.innerText = "❌ ID tidak terbaca. Pastikan gambar tidak blur."; 
+          btnSnap.disabled = false; 
+          return; 
+        }
         
-        statusEl.innerText = "🔍 Mencari ID di database...";
+        statusEl.innerText = "🔍 Mencari ID di Google Sheets...";
 
         const response = await fetch('/api/process', {
           method: 'POST',
@@ -218,9 +215,16 @@
         });
         
         const responseText = await response.text();
-        let resData = JSON.parse(responseText);
+        let resData;
+        try {
+          resData = JSON.parse(responseText);
+        } catch (jsonErr) {
+          throw new Error("Respon server bukan format JSON valid.");
+        }
 
-        if (!response.ok || !resData.success) throw new Error(resData.message);
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.message || "Gagal mencocokkan data.");
+        }
 
         if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
@@ -228,10 +232,11 @@
           scannedHistory.unshift({ id: Date.now(), matchedData: resData.matches[0], saved: false, selected: true });
           renderHistory();
         } else {
-          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master.";
+          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master Data.";
         }
       } catch (e) {
-        statusEl.innerText = "❌ Error: " + e.message;
+        const errDetail = (e && e.message) ? e.message : (typeof e === 'string' ? e : String(e));
+        statusEl.innerText = "❌ Error: " + errDetail;
       } finally {
         btnSnap.disabled = false;
       }
@@ -280,7 +285,6 @@
         
         firstSixColumns.forEach(([headerName, value]) => {
           if (headerName && headerName.trim() !== '') {
-            // Anti-Undefined UI Text
             let displayVal = value;
             if (displayVal === undefined || displayVal === null || displayVal === 'undefined') {
               displayVal = '-';
@@ -341,7 +345,7 @@
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
-        if (!response.ok || !resData.success) throw new Error(resData.message);
+        if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal menyimpan.");
 
         itemsToSave.forEach(item => { 
           item.saved = true; item.selected = false; 
@@ -351,7 +355,8 @@
         statusEl.innerText = `🎉 Tersimpan!`;
         renderHistory();
       } catch (e) {
-        alert('❌ Error: ' + e.message);
+        const errDetail = (e && e.message) ? e.message : (typeof e === 'string' ? e : String(e));
+        alert('❌ Error: ' + errDetail);
         statusEl.innerText = "❌ Gagal menyimpan.";
       } finally {
         btnSaveBulk.innerText = '💾 Simpan';

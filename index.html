@@ -105,7 +105,7 @@
             <input type="checkbox" id="checkAll" onchange="toggleSelectAll(this.checked)">
             Semua (<span id="selectedCount">0</span>)
           </label>
-          <button class="btn-save-bulk" id="btnSaveBulk" onclick="saveSelectedItems()" disabled>💾 Simpan Paxel</button>
+          <button class="btn-save-bulk" id="btnSaveBulk" onclick="saveSelectedItems()" disabled>💾 Simpan</button>
         </div>
       </div>
 
@@ -113,7 +113,7 @@
     </div>
   </div>
 
-  <!-- Memindahkan file berat ke bagian paling bawah agar UI tampil duluan -->
+  <!-- Script diload di akhir -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -372,7 +372,8 @@
         alert('❌ Error: ' + e.message);
         statusEl.innerText = "❌ Gagal menyimpan data.";
       } finally {
-        btnSaveBulk.innerText = '💾 Simpan Paxel';
+        // PERUBAHAN: Teks tombol diset kembali jadi "Simpan"
+        btnSaveBulk.innerText = '💾 Simpan';
       }
     }
 

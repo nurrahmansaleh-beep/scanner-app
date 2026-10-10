@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Mencegah HP menyimpan Cache terlalu lama -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Scanner DO Balik</title>
   
   <style>
@@ -14,11 +17,7 @@
     .camera-wrapper { position: relative; width: 100%; height: 240px; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 15px; }
     #videoElement { width: 100%; height: 100%; object-fit: cover; }
     
-    .scan-box {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 75%; height: 40px; border: 3px solid #ff9800; border-radius: 6px;
-      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5); pointer-events: none;
-    }
+    .scan-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 75%; height: 40px; border: 3px solid #ff9800; border-radius: 6px; box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5); pointer-events: none; }
     
     .btn-main { background: #1a73e8; color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; cursor: pointer; margin-bottom: 10px; }
     .btn-main:active { background: #1557b0; }
@@ -113,15 +112,7 @@
     </div>
   </div>
 
-  <!-- Form Tersembunyi (Jembatan Download untuk AppGeyser) -->
-  <form id="downloadForm" method="POST" action="/api/process" style="display:none;">
-    <input type="hidden" name="action" value="downloadExcel">
-    <input type="hidden" name="base64Data" id="base64DataInput">
-    <input type="hidden" name="fileName" id="fileNameInput">
-  </form>
-
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
@@ -161,32 +152,23 @@
     async function startCamera() {
       statusEl.innerText = "⌛ Meminta akses...";
       btnStart.disabled = true;
-
       if (currentStream) { currentStream.getTracks().forEach(track => track.stop()); }
-
       const tryConstraints = [{ video: { facingMode: "environment" } }, { video: { facingMode: "user" } }, { video: true }];
       let stream = null;
       for (let constraints of tryConstraints) {
         try { stream = await navigator.mediaDevices.getUserMedia(constraints); if (stream) break; } catch (err) {}
       }
-
       if (!stream) { btnStart.disabled = false; statusEl.innerText = "❌ Kamera gagal diakses."; return; }
-
       currentStream = stream;
       video.srcObject = stream;
       await new Promise((resolve) => { video.onloadedmetadata = () => { video.play().then(resolve).catch(resolve); }; });
-      
       statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak.";
       btnStart.style.display = 'none';
       btnSnap.style.display = 'block';
     }
 
     async function takeSnapAndScan() {
-      if (typeof Tesseract === 'undefined') {
-        alert("Sistem OCR masih memuat, tunggu beberapa detik lalu coba lagi.");
-        return;
-      }
-
+      if (typeof Tesseract === 'undefined') { alert("Sistem memuat..."); return; }
       btnSnap.disabled = true;
       statusEl.innerText = "⚙️ Membaca teks...";
       ocrDebugEl.style.display = 'none';
@@ -216,9 +198,7 @@
 
         debugTextEl.innerText = cleanIdText || "[Tidak Valid]";
 
-        if (!cleanIdText) {
-          statusEl.innerText = "❌ ID tidak terbaca. Pastikan jelas."; btnSnap.disabled = false; return;
-        }
+        if (!cleanIdText) { statusEl.innerText = "❌ ID tidak terbaca."; btnSnap.disabled = false; return; }
         statusEl.innerText = "🔍 Mencari ID...";
 
         const response = await fetch('/api/process', {
@@ -230,18 +210,12 @@
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
-        if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal memproses.");
+        if (!response.ok || !resData.success) throw new Error(resData.message);
 
         if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
           statusEl.innerText = "⚡ Data Ditemukan!";
-          
-          scannedHistory.unshift({
-            id: Date.now(),
-            matchedData: resData.matches[0],
-            saved: false,
-            selected: true 
-          });
+          scannedHistory.unshift({ id: Date.now(), matchedData: resData.matches[0], saved: false, selected: true });
           renderHistory();
         } else {
           statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master.";
@@ -257,13 +231,11 @@
       scannedHistory.forEach(item => { if (!item.saved) item.selected = isChecked; });
       renderHistory();
     }
-
     function toggleItemSelection(id, isChecked) {
       const item = scannedHistory.find(x => x.id === id);
       if (item) item.selected = isChecked;
       renderHistory();
     }
-
     function deleteItem(id) {
       if(confirm("Hapus dokumen ini dari layar?")) {
         scannedHistory = scannedHistory.filter(x => x.id !== id);
@@ -276,18 +248,10 @@
       const container = document.getElementById('resultsContainer');
       const btnExport = document.getElementById('btnExport');
       
-      if (scannedHistory.length === 0) {
-        historySection.style.display = 'none';
-        return;
-      }
+      if (scannedHistory.length === 0) { historySection.style.display = 'none'; return; }
 
       historySection.style.display = 'block';
-
-      if (scannedHistory.some(x => x.saved)) {
-        btnExport.style.display = 'inline-block';
-      } else {
-        btnExport.style.display = 'none';
-      }
+      btnExport.style.display = scannedHistory.some(x => x.saved) ? 'inline-block' : 'none';
 
       const unsavedItems = scannedHistory.filter(x => !x.saved);
       const selectedCount = unsavedItems.filter(x => x.selected).length;
@@ -324,7 +288,6 @@
             </div>
             
             <div class="info-table">${infoRowsHTML}</div>
-
             ${item.saved ? `<p style="color:green; font-weight:bold; margin: 10px 0 0 0; text-align:center; font-size:13px;">Tersimpan (Vendor: ${item.vendor})</p>` : ''}
           </div>
         `;
@@ -345,7 +308,7 @@
       const btnSaveBulk = document.getElementById('btnSaveBulk');
       btnSaveBulk.disabled = true;
       btnSaveBulk.innerText = '⏳ Menyimpan...';
-      statusEl.innerText = `💾 Menyimpan ${itemsToSave.length} data...`;
+      statusEl.innerText = `💾 Menyimpan...`;
 
       try {
         const payload = itemsToSave.map(item => ({
@@ -363,73 +326,40 @@
         const responseText = await response.text();
         let resData = JSON.parse(responseText);
 
-        if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal menyimpan.");
+        if (!response.ok || !resData.success) throw new Error(resData.message);
 
         itemsToSave.forEach(item => { 
-          item.saved = true; 
-          item.selected = false; 
-          item.tanggalSerahTerima = bulkDateValue;
-          item.vendor = bulkVendorValue;
+          item.saved = true; item.selected = false; 
+          item.tanggalSerahTerima = bulkDateValue; item.vendor = bulkVendorValue;
         });
         
-        statusEl.innerText = `🎉 Berhasil menyimpan ${itemsToSave.length} data!`;
+        statusEl.innerText = `🎉 Tersimpan!`;
         renderHistory();
       } catch (e) {
         alert('❌ Error: ' + e.message);
-        statusEl.innerText = "❌ Gagal menyimpan data.";
+        statusEl.innerText = "❌ Gagal menyimpan.";
       } finally {
         btnSaveBulk.innerText = '💾 Simpan';
       }
     }
 
-    // --- SOLUSI AMPUH UNTUK APP GEYSER (Native Server Download Form) ---
+    // --- SOLUSI MUTLAK UNDUHAN DI APP GEYSER (SERVER PROXY) ---
     function exportToExcel() {
-      if (typeof XLSX === 'undefined') {
-        alert("Sistem Export Excel sedang dimuat. Harap tunggu sebentar.");
-        return;
-      }
-      
       const savedItems = scannedHistory.filter(x => x.saved);
       if (savedItems.length === 0) {
-        alert("Belum ada data yang disimpan untuk diexport!");
-        return;
+        alert("Belum ada data yang disimpan!"); return;
       }
-
-      // 1. Susun Data ke Excel
-      const exportData = savedItems.map((item, index) => {
-        let row = {
-          "No": index + 1,
-          "ID Pengiriman": item.matchedData.shipment_external_id || '-',
-          "Tanggal Serah Terima": item.tanggalSerahTerima,
-          "Vendor": item.vendor
-        };
-        Object.keys(item.matchedData).forEach(key => {
-          if (key !== 'shipment_external_id') { row[key] = item.matchedData[key]; }
-        });
-        return row;
-      });
-
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
       
-      const fileName = `Bukti_Serah_Terima_${new Date().toISOString().split('T')[0]}.xlsx`;
+      const date = savedItems[0].tanggalSerahTerima;
+      const vendor = savedItems[0].vendor;
+      
+      // Ambil semua ID yang sudah tersimpan untuk dibuatkan filenya oleh server
+      const ids = savedItems.map(x => x.matchedData.shipment_external_id).join(',');
 
-      try {
-        // 2. Tulis File Excel dalam bentuk teks rahasia (Base64)
-        const b64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
-        
-        // 3. Masukkan teks tersebut ke dalam Form Tersembunyi
-        document.getElementById('base64DataInput').value = b64;
-        document.getElementById('fileNameInput').value = fileName;
-        
-        // 4. Perintahkan sistem untuk "Submit", seakan mengirimnya ke Server.
-        // AppGeyser HANYA mengizinkan unduhan dengan metode form ini!
-        document.getElementById('downloadForm').submit();
-
-      } catch (error) {
-        alert("Gagal mempersiapkan file: " + error.message);
-      }
+      // Mengarahkan WebView ke URL asli, memicu sistem Download bawaan Android!
+      const downloadUrl = `/api/process?action=downloadCSV&date=${encodeURIComponent(date)}&vendor=${encodeURIComponent(vendor)}&ids=${encodeURIComponent(ids)}`;
+      
+      window.location.href = downloadUrl;
     }
   </script>
 </body>

@@ -87,7 +87,7 @@
     <div id="historySection" style="display:none;">
       <div class="history-title">
         📋 Riwayat Scan
-        <button id="btnExport" class="btn-export" onclick="exportToExcel()">📤 BAGIKAN (XLS)</button>
+        <button id="btnExport" class="btn-export" onclick="exportToExcel()">📥 SIMPAN EXCEL</button>
       </div>
       
       <div class="bulk-controls" id="bulkControls">
@@ -112,6 +112,13 @@
       <div id="resultsContainer"></div>
     </div>
   </div>
+
+  <!-- Form Tersembunyi (Jembatan Download untuk AppGeyser) -->
+  <form id="downloadForm" method="POST" action="/api/process" style="display:none;">
+    <input type="hidden" name="action" value="downloadExcel">
+    <input type="hidden" name="base64Data" id="base64DataInput">
+    <input type="hidden" name="fileName" id="fileNameInput">
+  </form>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -375,8 +382,8 @@
       }
     }
 
-    // --- FUNGSI BAGIKAN FILE (NATIVE SHARE ANDROID) ---
-    async function exportToExcel() {
+    // --- SOLUSI AMPUH UNTUK APP GEYSER (Native Server Download Form) ---
+    function exportToExcel() {
       if (typeof XLSX === 'undefined') {
         alert("Sistem Export Excel sedang dimuat. Harap tunggu sebentar.");
         return;
@@ -388,7 +395,7 @@
         return;
       }
 
-      // Susun Data
+      // 1. Susun Data ke Excel
       const exportData = savedItems.map((item, index) => {
         let row = {
           "No": index + 1,
@@ -402,7 +409,6 @@
         return row;
       });
 
-      // Proses jadi Workbook Excel murni
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
@@ -410,26 +416,19 @@
       const fileName = `Bukti_Serah_Terima_${new Date().toISOString().split('T')[0]}.xlsx`;
 
       try {
-        // Buat file Blob murni
-        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        // 2. Tulis File Excel dalam bentuk teks rahasia (Base64)
+        const b64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
         
-        // Buat objek File yang bisa dibagikan
-        const file = new File([blob], fileName, { type: blob.type });
+        // 3. Masukkan teks tersebut ke dalam Form Tersembunyi
+        document.getElementById('base64DataInput').value = b64;
+        document.getElementById('fileNameInput').value = fileName;
+        
+        // 4. Perintahkan sistem untuk "Submit", seakan mengirimnya ke Server.
+        // AppGeyser HANYA mengizinkan unduhan dengan metode form ini!
+        document.getElementById('downloadForm').submit();
 
-        // Paksa buka menu "Share / Bagikan" bawaan HP
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: 'Bukti Serah Terima Excel',
-            text: 'Berikut adalah file Excel bukti serah terima.'
-          });
-        } else {
-          // Jika ditolak oleh AppGeyser, berikan info kepada admin
-          alert(`Peringatan: Aplikasi ini (AppGeyser) memblokir fungsi unduh. \n\nSilakan buka link website ini langsung di aplikasi "Google Chrome" HP Anda agar bisa mengunduhnya.`);
-        }
       } catch (error) {
-        console.error("Proses bagikan dibatalkan", error);
+        alert("Gagal mempersiapkan file: " + error.message);
       }
     }
   </script>

@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { action, ocrText, items } = req.body; // Kita ambil 'items' untuk array massal
+    const { action, ocrText, items } = req.body;
 
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
       return res.status(500).json({ success: false, message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' });
@@ -41,7 +41,6 @@ module.exports = async function handler(req, res) {
 
     const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
 
-    // AKSI PENCARIAN (TIDAK BERUBAH)
     if (action === 'liveTextScan') {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
       const googleRes = await client.request({ url });
@@ -72,26 +71,24 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ success: true, matches });
     }
 
-    // AKSI PENYIMPANAN MASSAL BARU (SUPER CEPAT)
     if (action === 'saveBulk') {
       if (!items || items.length === 0) return res.status(400).json({ success: false, message: 'Tidak ada data untuk disimpan.' });
 
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       
-      // Mengonversi Array of Objects dari frontend menjadi Array of Arrays untuk Google Sheet
       const values = items.map(item => {
-        const rowValues = Object.values(item.selectedData); // Data master
-        rowValues.push(item.tanggalSerahTerima || '-');     // Tanggal input user
-        rowValues.push(timestamp);                          // Tanggal waktu klik simpan
+        const rowValues = Object.values(item.selectedData); // Isi original dr Master Data
+        rowValues.push(item.tanggalSerahTerima || '-');     // Kolom Tanggal (Baru)
+        rowValues.push(item.vendor || '-');                 // Kolom Vendor (Baru)
+        rowValues.push(timestamp);                          // Kolom Waktu Scan (Baru)
         return rowValues;
       });
 
-      // Simpan seluruh array sekaligus (Google Sheet akan merendernya ke bawah otomatis)
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Paxel!A:Z:append?valueInputOption=USER_ENTERED`;
       await client.request({
         url,
         method: 'POST',
-        data: { values } // 'values' berisi puluhan baris sekaligus
+        data: { values }
       });
 
       return res.status(200).json({ success: true });

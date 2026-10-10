@@ -278,7 +278,6 @@
 
       historySection.style.display = 'block';
 
-      // Jika ada item yang sudah disave, tampilkan tombol Export XLS
       if (scannedHistory.some(x => x.saved)) {
         btnExport.style.display = 'inline-block';
       } else {
@@ -361,7 +360,6 @@
 
         if (!response.ok || !resData.success) throw new Error(resData.message || "Gagal menyimpan.");
 
-        // Tandai berhasil & simpan data inputan untuk keperluan Export Excel
         itemsToSave.forEach(item => { 
           item.saved = true; 
           item.selected = false; 
@@ -379,16 +377,13 @@
       }
     }
 
-    // --- FUNGSI EXPORT KE EXCEL (SheetJS) ---
     function exportToExcel() {
-      // Ambil hanya data yang SUDAH tersimpan
       const savedItems = scannedHistory.filter(x => x.saved);
       if (savedItems.length === 0) {
         alert("Belum ada data yang disimpan untuk diexport!");
         return;
       }
 
-      // Susun format data Excel agar rapi
       const exportData = savedItems.map((item, index) => {
         let row = {
           "No": index + 1,
@@ -397,7 +392,6 @@
           "Vendor": item.vendor
         };
         
-        // Memasukkan sisa kolom Master Data ke Excel
         Object.keys(item.matchedData).forEach(key => {
           if (key !== 'shipment_external_id') {
             row[key] = item.matchedData[key];
@@ -407,7 +401,6 @@
         return row;
       });
 
-      // Proses Buat File .xlsx
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");

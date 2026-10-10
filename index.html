@@ -113,7 +113,6 @@
     </div>
   </div>
 
-  <!-- Script diload di akhir -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -376,8 +375,8 @@
       }
     }
 
-    // --- FUNGSI EXPORT KHUSUS APLIKASI (WEB SHARE API) ---
-    async function exportToExcel() {
+    // --- SOLUSI KHUSUS UNTUK APP GEYSER / WEBVIEW ANDROID ---
+    function exportToExcel() {
       if (typeof XLSX === 'undefined') {
         alert("Sistem Export Excel sedang dimuat. Harap tunggu sebentar.");
         return;
@@ -389,6 +388,7 @@
         return;
       }
 
+      // Susun Data
       const exportData = savedItems.map((item, index) => {
         let row = {
           "No": index + 1,
@@ -396,16 +396,13 @@
           "Tanggal Serah Terima": item.tanggalSerahTerima,
           "Vendor": item.vendor
         };
-        
         Object.keys(item.matchedData).forEach(key => {
-          if (key !== 'shipment_external_id') {
-            row[key] = item.matchedData[key];
-          }
+          if (key !== 'shipment_external_id') { row[key] = item.matchedData[key]; }
         });
-        
         return row;
       });
 
+      // Proses jadi Workbook
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
@@ -413,30 +410,20 @@
       const fileName = `Bukti_Serah_Terima_${new Date().toISOString().split('T')[0]}.xlsx`;
 
       try {
-        // Konversi ke format Blob agar dikenali sebagai "File Asli" di Android
-        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const file = new File([blob], fileName, { type: blob.type });
-
-        // Cek apakah perangkat mendukung fitur "Bagikan (Share)"
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: 'Bukti Serah Terima Excel',
-            text: 'Berikut adalah file Excel bukti serah terima.'
-          });
-        } else {
-          // Jika ditolak atau dibuka di PC biasa, gunakan download normal
-          XLSX.writeFile(workbook, fileName);
-        }
+        // PERUBAHAN INTI: Ubah ke Data URI (Base64) agar AppGeyser sanggup memprosesnya
+        const b64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
+        const dataUri = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + b64;
+        
+        // Bikin trik klik otomatis
+        const a = document.createElement("a");
+        a.href = dataUri;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
       } catch (error) {
-        console.error("Proses bagikan dibatalkan atau gagal", error);
-        // Fallback terakhir
-        try {
-          XLSX.writeFile(workbook, fileName);
-        } catch (e) {
-          alert("Gagal membagikan/menyimpan file. Silakan buka aplikasi ini langsung di Google Chrome.");
-        }
+        alert("Gagal mengunduh file: " + error.message);
       }
     }
   </script>

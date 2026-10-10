@@ -1,8 +1,13 @@
 {
-  "name": "scanner-app",
+  "name": "scanner-api",
   "version": "1.0.0",
+  "description": "API untuk Scanner",
   "main": "api/process.js",
+  "scripts": {
+    "start": "node api/process.js"
+  },
   "dependencies": {
-    "google-auth-library": "^9.0.0"
+    "google-auth-library": "^8.0.0",
+    "xlsx": "^0.18.5"
   }
 }

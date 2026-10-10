@@ -1,55 +1,98 @@
 const { JWT } = require('google-auth-library');
+const url = require('url');
 
 function cleanText(str) {
   if (!str) return '';
-  return str.toString()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '') 
-    .replace(/O/g, '0');
+  return str.toString().toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/O/g, '0');
 }
 
 module.exports = async function handler(req, res) {
-  // Hanya izinkan method POST
+  // Ambil parameter untuk deteksi aksi
+  const queryObject = url.parse(req.url, true).query;
+  const action = req.method === 'POST' ? req.body.action : queryObject.action;
+
+  // =====================================================================
+  // FITUR BARU: JALUR UNDUH KHUSUS UNTUK APLIKASI (GET METHOD)
+  // =====================================================================
+  if (req.method === 'GET' && action === 'downloadCSV') {
+    try {
+      const { ids, vendor, date } = queryObject;
+      if (!ids) return res.status(400).send("Tidak ada data ID");
+
+      if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+        return res.status(500).send("Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang.");
+      }
+
+      let creds = process.env.GOOGLE_SERVICE_ACCOUNT;
+      if (typeof creds === 'string') creds = JSON.parse(creds);
+      creds.private_key = creds.private_key.replace(/\\n/g, '\n');
+
+      const client = new JWT({
+        email: creds.client_email,
+        key: creds.private_key,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
+
+      const spreadsheetId = '1oebQAuME9hLlulSIEr-PY1Wj9VuWKfDCOpkDQehXorE';
+      const sheetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Master%20Data!A:Z`;
+      const googleRes = await client.request({ url: sheetUrl });
+      const rows = googleRes.data.values;
+      
+      if (!rows || rows.length === 0) return res.status(404).send('Data kosong');
+      
+      const headers = rows[0];
+      const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
+      const idArray = ids.split(',');
+
+      // Susun Header CSV
+      let csvContent = '"No","ID Pengiriman","Tanggal Serah Terima","Vendor"';
+      headers.forEach((h, i) => {
+        if (i !== idIndex) csvContent += `,"${h || ''}"`;
+      });
+      csvContent += "\n";
+
+      // Susun Baris Data
+      let counter = 1;
+      for (let i = 1; i < rows.length; i++) {
+        const rawId = rows[i][idIndex];
+        if (rawId && idArray.includes(rawId.toString().trim())) {
+          let rowString = `"${counter}","${rawId}","${date}","${vendor}"`;
+          headers.forEach((h, idx) => {
+            if (idx !== idIndex) {
+              let val = rows[i][idx] || '';
+              val = val.toString().replace(/"/g, '""'); // Format aman Excel
+              rowString += `,"${val}"`;
+            }
+          });
+          csvContent += rowString + "\n";
+          counter++;
+        }
+      }
+
+      // Berikan perintah unduh resmi ke Browser / AppGeyser
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Bukti_Serah_Terima_${date}.csv"`);
+      return res.status(200).send('\uFEFF' + csvContent); // uFEFF agar rapi di Excel
+    } catch (error) {
+      return res.status(500).send("Error pembuatan file: " + error.message);
+    }
+  }
+
+  // =====================================================================
+  // LOGIKA PEMINDAIAN DAN PENYIMPANAN SEPERTI BIASA (POST METHOD)
+  // =====================================================================
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }
 
+  res.setHeader('Content-Type', 'application/json');
   try {
-    const { action } = req.body;
-
-    // FITUR BARU: Jembatan Download Resmi untuk AppGeyser
-    if (action === 'downloadExcel') {
-      const { base64Data, fileName } = req.body;
-      if (!base64Data) return res.status(400).send("Tidak ada data");
-      
-      const buffer = Buffer.from(base64Data, 'base64');
-      
-      // Kirim sebagai stream file (AppGeyser sangat menyukai metode ini)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName || 'Bukti_Scan.xlsx'}"`);
-      return res.status(200).send(buffer);
-    }
-
-    // --- BATAS BAWAH INI ADALAH LOGIKA GOOGLE SHEETS (SEPERTI BIASA) ---
-    res.setHeader('Content-Type', 'application/json');
-
     const { ocrText, items } = req.body;
-
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      return res.status(500).json({ success: false, message: 'Variabel GOOGLE_SERVICE_ACCOUNT belum dipasang di Vercel.' });
-    }
-
-    let creds;
-    try {
-      const raw = process.env.GOOGLE_SERVICE_ACCOUNT;
-      creds = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (creds.private_key) {
-        creds.private_key = creds.private_key.replace(/\\n/g, '\n');
-      }
-    } catch (e) {
-      return res.status(500).json({ success: false, message: 'Format JSON salah: ' + e.message });
-    }
+    
+    let creds = process.env.GOOGLE_SERVICE_ACCOUNT;
+    if (typeof creds === 'string') creds = JSON.parse(creds);
+    creds.private_key = creds.private_key.replace(/\\n/g, '\n');
 
     const client = new JWT({
       email: creds.client_email,
@@ -93,7 +136,6 @@ module.exports = async function handler(req, res) {
       if (!items || items.length === 0) return res.status(400).json({ success: false, message: 'Tidak ada data untuk disimpan.' });
 
       const timestamp = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      
       const values = items.map(item => {
         const rowValues = Object.values(item.selectedData);
         rowValues.push(item.tanggalSerahTerima || '-');     
@@ -103,17 +145,11 @@ module.exports = async function handler(req, res) {
       });
 
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Serah%20Terima%20Vendor!A:Z:append?valueInputOption=USER_ENTERED`;
-      await client.request({
-        url,
-        method: 'POST',
-        data: { values }
-      });
-
+      await client.request({ url, method: 'POST', data: { values } });
       return res.status(200).json({ success: true });
     }
 
   } catch (error) {
-    res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({ success: false, message: 'Gagal Google API: ' + (error.message || error.toString()) });
   }
 };

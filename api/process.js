@@ -7,13 +7,10 @@ function cleanText(str) {
 }
 
 module.exports = async function handler(req, res) {
-  // Ambil parameter untuk deteksi aksi
   const queryObject = url.parse(req.url, true).query;
   const action = req.method === 'POST' ? req.body.action : queryObject.action;
 
-  // =====================================================================
-  // FITUR BARU: JALUR UNDUH KHUSUS UNTUK APLIKASI (GET METHOD)
-  // =====================================================================
+  // JALUR UNDUH CSV LANGSUNG
   if (req.method === 'GET' && action === 'downloadCSV') {
     try {
       const { ids, vendor, date } = queryObject;
@@ -44,14 +41,12 @@ module.exports = async function handler(req, res) {
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       const idArray = ids.split(',');
 
-      // Susun Header CSV
       let csvContent = '"No","ID Pengiriman","Tanggal Serah Terima","Vendor"';
       headers.forEach((h, i) => {
         if (i !== idIndex) csvContent += `,"${h || ''}"`;
       });
       csvContent += "\n";
 
-      // Susun Baris Data
       let counter = 1;
       for (let i = 1; i < rows.length; i++) {
         const rawId = rows[i][idIndex];
@@ -60,7 +55,7 @@ module.exports = async function handler(req, res) {
           headers.forEach((h, idx) => {
             if (idx !== idIndex) {
               let val = rows[i][idx] || '';
-              val = val.toString().replace(/"/g, '""'); // Format aman Excel
+              val = val.toString().replace(/"/g, '""');
               rowString += `,"${val}"`;
             }
           });
@@ -69,18 +64,14 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      // Berikan perintah unduh resmi ke Browser / AppGeyser
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="Bukti_Serah_Terima_${date}.csv"`);
-      return res.status(200).send('\uFEFF' + csvContent); // uFEFF agar rapi di Excel
+      return res.status(200).send('\uFEFF' + csvContent);
     } catch (error) {
       return res.status(500).send("Error pembuatan file: " + error.message);
     }
   }
 
-  // =====================================================================
-  // LOGIKA PEMINDAIAN DAN PENYIMPANAN SEPERTI BIASA (POST METHOD)
-  // =====================================================================
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'application/json');
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });

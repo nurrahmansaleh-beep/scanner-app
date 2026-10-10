@@ -87,7 +87,7 @@
     <div id="historySection" style="display:none;">
       <div class="history-title">
         📋 Riwayat Scan
-        <button id="btnExport" class="btn-export" onclick="exportToExcel()">📥 EXCEL (XLS)</button>
+        <button id="btnExport" class="btn-export" onclick="exportToExcel()">📤 BAGIKAN (XLS)</button>
       </div>
       
       <div class="bulk-controls" id="bulkControls">
@@ -375,8 +375,8 @@
       }
     }
 
-    // --- SOLUSI KHUSUS UNTUK APP GEYSER / WEBVIEW ANDROID ---
-    function exportToExcel() {
+    // --- FUNGSI BAGIKAN FILE (NATIVE SHARE ANDROID) ---
+    async function exportToExcel() {
       if (typeof XLSX === 'undefined') {
         alert("Sistem Export Excel sedang dimuat. Harap tunggu sebentar.");
         return;
@@ -402,7 +402,7 @@
         return row;
       });
 
-      // Proses jadi Workbook
+      // Proses jadi Workbook Excel murni
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
@@ -410,20 +410,26 @@
       const fileName = `Bukti_Serah_Terima_${new Date().toISOString().split('T')[0]}.xlsx`;
 
       try {
-        // PERUBAHAN INTI: Ubah ke Data URI (Base64) agar AppGeyser sanggup memprosesnya
-        const b64 = XLSX.write(workbook, { bookType: 'xlsx', type: 'base64' });
-        const dataUri = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + b64;
+        // Buat file Blob murni
+        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         
-        // Bikin trik klik otomatis
-        const a = document.createElement("a");
-        a.href = dataUri;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
+        // Buat objek File yang bisa dibagikan
+        const file = new File([blob], fileName, { type: blob.type });
+
+        // Paksa buka menu "Share / Bagikan" bawaan HP
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Bukti Serah Terima Excel',
+            text: 'Berikut adalah file Excel bukti serah terima.'
+          });
+        } else {
+          // Jika ditolak oleh AppGeyser, berikan info kepada admin
+          alert(`Peringatan: Aplikasi ini (AppGeyser) memblokir fungsi unduh. \n\nSilakan buka link website ini langsung di aplikasi "Google Chrome" HP Anda agar bisa mengunduhnya.`);
+        }
       } catch (error) {
-        alert("Gagal mengunduh file: " + error.message);
+        console.error("Proses bagikan dibatalkan", error);
       }
     }
   </script>

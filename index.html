@@ -6,11 +6,6 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Scanner DO Balik</title>
   
-  <!-- Tesseract untuk OCR -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-  <!-- SheetJS untuk Export Excel -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  
   <style>
     body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; margin: 0; padding: 15px; text-align: center; }
     .container { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
@@ -36,7 +31,6 @@
     
     .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; font-weight:bold; display: flex; justify-content: space-between; align-items: center; }
     
-    /* Panel Kontrol Massal dengan Vendor */
     .bulk-controls { display: flex; flex-direction: column; gap: 10px; background: #fff; border: 1px solid #cce5ff; padding: 12px; border-radius: 10px; margin-bottom: 15px; }
     .input-wrap { display: flex; align-items: center; justify-content: space-between; background: #f0f7ff; padding: 8px 10px; border-radius: 8px; border: 1px solid #b8daff; }
     .input-wrap label { font-size: 12px; font-weight: bold; color: #1a73e8; }
@@ -51,7 +45,6 @@
     
     .btn-export { background: #ff9800; color: white; border: none; padding: 8px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; display: none; }
 
-    /* Result Card */
     .result-card { background: #e8f0fe; border: 1px solid #1a73e8; padding: 14px; border-radius: 12px; text-align: left; margin-bottom: 15px; position: relative; }
     .result-card.saved { background: #f0f0f0; border-color: #ccc; opacity: 0.8; }
     
@@ -91,14 +84,12 @@
       <img id="debugCanvasImage" alt="Potongan OCR">
     </div>
     
-    <!-- Wadah Riwayat Hasil Scan -->
     <div id="historySection" style="display:none;">
       <div class="history-title">
         📋 Riwayat Scan
         <button id="btnExport" class="btn-export" onclick="exportToExcel()">📥 EXCEL (XLS)</button>
       </div>
       
-      <!-- Kontrol Massal: Tanggal & Vendor -->
       <div class="bulk-controls" id="bulkControls">
         <div class="input-wrap">
           <label>📅 Tgl Serah Terima:</label>
@@ -122,8 +113,11 @@
     </div>
   </div>
 
+  <!-- Memindahkan file berat ke bagian paling bawah agar UI tampil duluan -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <script>
-    // Set Tanggal Hari Ini
     document.addEventListener("DOMContentLoaded", () => {
       const localDate = new Date();
       const offset = localDate.getTimezoneOffset() * 60000;
@@ -182,6 +176,11 @@
     }
 
     async function takeSnapAndScan() {
+      if (typeof Tesseract === 'undefined') {
+        alert("Sistem OCR masih memuat, tunggu beberapa detik lalu coba lagi.");
+        return;
+      }
+
       btnSnap.disabled = true;
       statusEl.innerText = "⚙️ Membaca teks...";
       ocrDebugEl.style.display = 'none';
@@ -378,6 +377,11 @@
     }
 
     function exportToExcel() {
+      if (typeof XLSX === 'undefined') {
+        alert("Sistem Export Excel sedang dimuat. Harap tunggu sebentar.");
+        return;
+      }
+      
       const savedItems = scannedHistory.filter(x => x.saved);
       if (savedItems.length === 0) {
         alert("Belum ada data yang disimpan untuk diexport!");

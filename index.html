@@ -355,8 +355,7 @@
 
       const downloadUrl = `/api/process?action=downloadCSV&date=${encodeURIComponent(date)}&vendor=${encodeURIComponent(vendor)}&ids=${encodeURIComponent(ids)}`;
       
-      // Membuka tautan langsung ke browser eksternal agar otomatis mengunduh di Chrome
-      window.open(downloadUrl, '_blank');
+      window.location.href = downloadUrl;
     }
   </script>
 </body>

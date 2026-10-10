@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Mencegah HP menyimpan Cache terlalu lama -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -343,23 +342,21 @@
       }
     }
 
-    // --- SOLUSI MUTLAK UNDUHAN DI APP GEYSER (SERVER PROXY) ---
     function exportToExcel() {
       const savedItems = scannedHistory.filter(x => x.saved);
       if (savedItems.length === 0) {
-        alert("Belum ada data yang disimpan!"); return;
+        alert("Belum ada data yang disimpan!"); 
+        return;
       }
       
       const date = savedItems[0].tanggalSerahTerima;
       const vendor = savedItems[0].vendor;
-      
-      // Ambil semua ID yang sudah tersimpan untuk dibuatkan filenya oleh server
       const ids = savedItems.map(x => x.matchedData.shipment_external_id).join(',');
 
-      // Mengarahkan WebView ke URL asli, memicu sistem Download bawaan Android!
       const downloadUrl = `/api/process?action=downloadCSV&date=${encodeURIComponent(date)}&vendor=${encodeURIComponent(vendor)}&ids=${encodeURIComponent(ids)}`;
       
-      window.location.href = downloadUrl;
+      // Membuka tautan langsung ke browser eksternal agar otomatis mengunduh di Chrome
+      window.open(downloadUrl, '_blank');
     }
   </script>
 </body>

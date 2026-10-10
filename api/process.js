@@ -1,6 +1,6 @@
 const { JWT } = require('google-auth-library');
 const url = require('url');
-const XLSX = require('xlsx'); // Mesin Excel di sisi Server
+const XLSX = require('xlsx'); // Mesin pembuat Excel asli
 
 function cleanText(str) {
   if (!str) return '';
@@ -12,9 +12,14 @@ module.exports = async function handler(req, res) {
   const action = req.method === 'POST' ? req.body.action : queryObject.action;
 
   // =====================================================================
-  // JALUR UNDUH EXCEL (.XLSX) MURNI UNTUK APP GEYSER
+  // JALUR UNDUH EXCEL (.XLSX) MURNI UNTUK APP GEYSER DAN CHROME
   // =====================================================================
-  if (req.method === 'GET' && action === 'downloadXLSX') {
+  if (action === 'downloadXLSX') {
+    // AppGeyser sering mengirim HEAD request untuk mengecek ukuran file sebelum download
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return res.status(405).send("Method Tidak Diizinkan");
+    }
+
     try {
       const { ids, vendor, date } = queryObject;
       if (!ids) return res.status(400).send("Tidak ada data ID");
@@ -44,7 +49,7 @@ module.exports = async function handler(req, res) {
       const idIndex = headers.findIndex(h => h && h.toString().trim() === 'shipment_external_id');
       const idArray = ids.split(',');
 
-      // 1. Susun Data untuk Excel
+      // 1. Menyusun Data Excel
       const exportData = [];
       let counter = 1;
       
@@ -57,32 +62,33 @@ module.exports = async function handler(req, res) {
             "Tanggal Serah Terima": date,
             "Vendor": vendor
           };
-          
           headers.forEach((h, idx) => {
-            if (idx !== idIndex) {
-              rowObj[h] = rows[i][idx] || '';
-            }
+            if (idx !== idIndex) rowObj[h] = rows[i][idx] || '';
           });
           exportData.push(rowObj);
           counter++;
         }
       }
 
-      // 2. Buat File .xlsx murni di Server
+      // 2. Merakit File .xlsx
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Bukti Scan");
       
-      // Convert ke Buffer Array
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-
-      // 3. Kirim ke HP dengan Header Ketat (Mencegah Layar Blank di AppGeyser)
       const fileName = `Bukti_Serah_Terima_${date}.xlsx`;
-      
+
+      // 3. Mengirimkan File dengan izin lengkap agar "SAVE FILE" berfungsi
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-      res.setHeader('Content-Length', buffer.length); // INI YANG MEMPERBAIKI TOMBOL "SAVE FILE"
+      res.setHeader('Content-Length', buffer.length); // Kunci agar tombol AppGeyser tidak macet
+
+      // Jika AppGeyser hanya mengecek ukuran file (HEAD), hentikan proses di sini
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
+      }
       
+      // Jika GET, kirim file fisiknya
       return res.status(200).send(buffer);
 
     } catch (error) {
@@ -91,7 +97,7 @@ module.exports = async function handler(req, res) {
   }
 
   // =====================================================================
-  // LOGIKA PEMINDAIAN DAN PENYIMPANAN DATA (TIDAK BERUBAH)
+  // LOGIKA PEMINDAIAN DAN PENYIMPANAN KE GOOGLE SHEETS
   // =====================================================================
   if (req.method !== 'POST') {
     res.setHeader('Content-Type', 'application/json');

@@ -24,7 +24,6 @@
     
     #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
     
-    /* Box Koreksi Manual */
     #ocrDebug { font-size: 13px; color: #333; background: #fff8e1; padding: 12px; border-radius: 10px; border: 2px dashed #ff9800; margin-top: 12px; display: none; text-align: left; }
     .edit-input-group { display: flex; gap: 8px; margin-top: 6px; }
     .edit-input-group input { flex: 1; padding: 8px 10px; border: 1px solid #ff9800; border-radius: 8px; font-weight: bold; font-size: 14px; outline: none; text-transform: uppercase; }
@@ -82,7 +81,6 @@
     <canvas id="canvasElement" style="display:none;"></canvas>
     <div id="status">Tekan tombol biru untuk mengaktifkan kamera.</div>
     
-    <!-- Area Koreksi Manual & Hasil OCR -->
     <div id="ocrDebug">
       <span style="font-weight:bold; font-size:12px; color:#d97706;">✏️ Periksa / Edit ID jika buram:</span>
       <div class="edit-input-group">
@@ -161,19 +159,65 @@
     }
 
     async function startCamera() {
-      statusEl.innerText = "⌛ Meminta akses...";
+      statusEl.innerText = "⌛ Mengonfigurasi kamera resolusi tinggi...";
       btnStart.disabled = true;
       if (currentStream) { currentStream.getTracks().forEach(track => track.stop()); }
-      const tryConstraints = [{ video: { facingMode: "environment" } }, { video: { facingMode: "user" } }, { video: true }];
+
+      // Urutan prioritas resolusi: Full HD -> HD 720p -> Fallback otomatis
+      const tryConstraints = [
+        {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
+            focusMode: { ideal: "continuous" },
+            advanced: [{ focusMode: "continuous" }]
+          }
+        },
+        {
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ focusMode: "continuous" }]
+          }
+        },
+        {
+          video: {
+            facingMode: "environment"
+          }
+        },
+        { video: true }
+      ];
+
       let stream = null;
       for (let constraints of tryConstraints) {
-        try { stream = await navigator.mediaDevices.getUserMedia(constraints); if (stream) break; } catch (err) {}
+        try { 
+          stream = await navigator.mediaDevices.getUserMedia(constraints); 
+          if (stream) break; 
+        } catch (err) {}
       }
-      if (!stream) { btnStart.disabled = false; statusEl.innerText = "❌ Kamera gagal diakses."; return; }
+
+      if (!stream) { 
+        btnStart.disabled = false; 
+        statusEl.innerText = "❌ Kamera gagal diakses."; 
+        return; 
+      }
+
       currentStream = stream;
       video.srcObject = stream;
-      await new Promise((resolve) => { video.onloadedmetadata = () => { video.play().then(resolve).catch(resolve); }; });
-      statusEl.innerText = "🟢 Kamera aktif! Posisikan ID di kotak.";
+      await new Promise((resolve) => { 
+        video.onloadedmetadata = () => { 
+          video.play().then(resolve).catch(resolve); 
+        }; 
+      });
+
+      // Tampilkan resolusi aktif ke indikator status
+      const track = stream.getVideoTracks()[0];
+      const settings = track ? track.getSettings() : {};
+      const resText = (settings.width && settings.height) ? ` (${settings.width}x${settings.height})` : '';
+
+      statusEl.innerText = `🟢 Kamera HD Aktif${resText}! Posisikan ID di kotak.`;
       btnStart.style.display = 'none';
       btnSnap.style.display = 'block';
     }
@@ -187,18 +231,21 @@
       btnSnap.disabled = true;
       statusEl.innerText = "⚙️ Membaca teks...";
 
-      const vW = video.videoWidth || 640;
-      const vH = video.videoHeight || 480;
+      const vW = video.videoWidth || 1280;
+      const vH = video.videoHeight || 720;
       const cropW = vW * 0.75; 
       const cropH = vH * 0.12;
       const cropX = (vW - cropW) / 2;
       const cropY = (vH - cropH) / 2;
 
-      canvas.width = cropW; canvas.height = cropH;
-      ctx.filter = 'grayscale(100%) contrast(250%) brightness(130%)';
+      canvas.width = cropW; 
+      canvas.height = cropH;
+
+      // Filter grayscale dan kontras yang seimbang agar teks tidak pecah atau hilang
+      ctx.filter = 'grayscale(100%) contrast(180%) brightness(105%)';
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       
-      const imageDataURL = canvas.toDataURL('image/jpeg', 0.9);
+      const imageDataURL = canvas.toDataURL('image/jpeg', 0.95);
       debugCanvasImage.src = imageDataURL;
       ocrDebugEl.style.display = 'block';
 
@@ -213,7 +260,7 @@
         manualEditInput.value = cleanIdText || "";
 
         if (!cleanIdText) { 
-          statusEl.innerText = "⚠️ Tulisan buram/tidak terbaca. Silakan ketik manual ID di kotak lalu klik CARI."; 
+          statusEl.innerText = "⚠️ ID tidak terbaca. Periksa foto acuan atau ketik manual lalu klik CARI."; 
           manualEditInput.focus();
           return; 
         }
@@ -227,7 +274,6 @@
       }
     }
 
-    // Fungsi Pencarian ke Master Data (Dipakai oleh OCR maupun Ketik/Edit Manual)
     async function executeLookup(targetId) {
       const cleanId = (targetId || '').trim().toUpperCase();
       if (!cleanId) {

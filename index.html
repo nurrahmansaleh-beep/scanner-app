@@ -24,8 +24,13 @@
     
     #status { font-weight: bold; margin: 10px 0; color: #333; font-size: 14px; }
     
-    #ocrDebug { font-size: 13px; color: #333; background: #fff; padding: 10px; border-radius: 8px; border: 2px dashed #ff9800; margin-top: 10px; display: none; }
-    #debugCanvasImage { width: 100%; max-height: 50px; object-fit: contain; margin-top: 6px; border: 1px solid #ddd; }
+    /* Box Koreksi Manual */
+    #ocrDebug { font-size: 13px; color: #333; background: #fff8e1; padding: 12px; border-radius: 10px; border: 2px dashed #ff9800; margin-top: 12px; display: none; text-align: left; }
+    .edit-input-group { display: flex; gap: 8px; margin-top: 6px; }
+    .edit-input-group input { flex: 1; padding: 8px 10px; border: 1px solid #ff9800; border-radius: 8px; font-weight: bold; font-size: 14px; outline: none; text-transform: uppercase; }
+    .btn-recheck { background: #ff9800; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px; }
+    .btn-recheck:disabled { background: #ccc; cursor: not-allowed; }
+    #debugCanvasImage { width: 100%; max-height: 55px; object-fit: contain; margin-top: 8px; border: 1px solid #ddd; background: #fff; border-radius: 4px; }
     
     .history-title { text-align: left; margin: 20px 0 10px 0; font-size: 16px; color: #333; border-bottom: 2px solid #1a73e8; padding-bottom: 5px; font-weight:bold; display: flex; justify-content: space-between; align-items: center; }
     
@@ -77,8 +82,14 @@
     <canvas id="canvasElement" style="display:none;"></canvas>
     <div id="status">Tekan tombol biru untuk mengaktifkan kamera.</div>
     
+    <!-- Area Koreksi Manual & Hasil OCR -->
     <div id="ocrDebug">
-      <b>Teks Hasil Saringan:</b> <span id="debugText" style="color:#28a745; font-weight:bold; font-size:15px;">-</span><br>
+      <span style="font-weight:bold; font-size:12px; color:#d97706;">✏️ Periksa / Edit ID jika buram:</span>
+      <div class="edit-input-group">
+        <input type="text" id="manualEditInput" placeholder="Ketik atau edit ID..." onkeydown="if(event.key==='Enter') executeLookup(this.value)">
+        <button class="btn-recheck" id="btnRecheck" onclick="executeLookup(document.getElementById('manualEditInput').value)">🔍 CARI</button>
+      </div>
+      <small style="color:#666; display:block; margin-top:6px;">Foto acuan label:</small>
       <img id="debugCanvasImage" alt="Potongan OCR">
     </div>
     
@@ -124,7 +135,8 @@
     const canvas = document.getElementById('canvasElement');
     const statusEl = document.getElementById('status');
     const ocrDebugEl = document.getElementById('ocrDebug');
-    const debugTextEl = document.getElementById('debugText');
+    const manualEditInput = document.getElementById('manualEditInput');
+    const btnRecheck = document.getElementById('btnRecheck');
     const debugCanvasImage = document.getElementById('debugCanvasImage');
     const btnStart = document.getElementById('btnStart');
     const btnSnap = document.getElementById('btnSnap');
@@ -174,7 +186,6 @@
       
       btnSnap.disabled = true;
       statusEl.innerText = "⚙️ Membaca teks...";
-      ocrDebugEl.style.display = 'none';
 
       const vW = video.videoWidth || 640;
       const vH = video.videoHeight || 480;
@@ -199,28 +210,43 @@
         const idPattern = rawText.match(/[A-Z0-9\-]{5,}/g);
         if (idPattern && idPattern.length > 0) { cleanIdText = idPattern[0]; }
 
-        debugTextEl.innerText = cleanIdText || "[Tidak Valid]";
+        manualEditInput.value = cleanIdText || "";
+
         if (!cleanIdText) { 
-          statusEl.innerText = "❌ ID tidak terbaca. Pastikan gambar tidak blur."; 
-          btnSnap.disabled = false; 
+          statusEl.innerText = "⚠️ Tulisan buram/tidak terbaca. Silakan ketik manual ID di kotak lalu klik CARI."; 
+          manualEditInput.focus();
           return; 
         }
         
-        statusEl.innerText = "🔍 Mencari ID di Google Sheets...";
+        await executeLookup(cleanIdText);
+      } catch (e) {
+        const errDetail = (e && e.message) ? e.message : String(e);
+        statusEl.innerText = "❌ Error OCR: " + errDetail;
+      } finally {
+        btnSnap.disabled = false;
+      }
+    }
 
+    // Fungsi Pencarian ke Master Data (Dipakai oleh OCR maupun Ketik/Edit Manual)
+    async function executeLookup(targetId) {
+      const cleanId = (targetId || '').trim().toUpperCase();
+      if (!cleanId) {
+        alert("Ketik ID pengiriman terlebih dahulu!");
+        return;
+      }
+
+      btnRecheck.disabled = true;
+      statusEl.innerText = `🔍 Mencari ${cleanId} di Master Data...`;
+
+      try {
         const response = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanIdText })
+          body: JSON.stringify({ action: 'liveTextScan', ocrText: cleanId })
         });
         
         const responseText = await response.text();
-        let resData;
-        try {
-          resData = JSON.parse(responseText);
-        } catch (jsonErr) {
-          throw new Error("Respon server bukan format JSON valid.");
-        }
+        let resData = JSON.parse(responseText);
 
         if (!response.ok || !resData.success) {
           throw new Error(resData.message || "Gagal mencocokkan data.");
@@ -228,17 +254,24 @@
 
         if (resData.matches && resData.matches.length > 0) {
           playBeepSound();
-          statusEl.innerText = "⚡ Data Ditemukan!";
-          scannedHistory.unshift({ id: Date.now(), matchedData: resData.matches[0], saved: false, selected: true });
+          statusEl.innerText = `⚡ Data Ditemukan (${cleanId})!`;
+          
+          scannedHistory.unshift({ 
+            id: Date.now(), 
+            matchedData: resData.matches[0], 
+            saved: false, 
+            selected: true 
+          });
           renderHistory();
         } else {
-          statusEl.innerText = "❌ ID (" + cleanIdText + ") tidak ada di Master Data.";
+          statusEl.innerText = `❌ ID (${cleanId}) tidak ada di Master Data. Cek foto acuan & koreksi ID di atas.`;
+          manualEditInput.focus();
         }
-      } catch (e) {
-        const errDetail = (e && e.message) ? e.message : (typeof e === 'string' ? e : String(e));
-        statusEl.innerText = "❌ Error: " + errDetail;
+      } catch (err) {
+        const msg = (err && err.message) ? err.message : String(err);
+        statusEl.innerText = "❌ Error: " + msg;
       } finally {
-        btnSnap.disabled = false;
+        btnRecheck.disabled = false;
       }
     }
 
@@ -355,7 +388,7 @@
         statusEl.innerText = `🎉 Tersimpan!`;
         renderHistory();
       } catch (e) {
-        const errDetail = (e && e.message) ? e.message : (typeof e === 'string' ? e : String(e));
+        const errDetail = (e && e.message) ? e.message : String(e);
         alert('❌ Error: ' + errDetail);
         statusEl.innerText = "❌ Gagal menyimpan.";
       } finally {
